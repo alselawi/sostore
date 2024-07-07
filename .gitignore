@@ -30,3 +30,5 @@ docs/
 
 # Ignore cache files
 .cache/
+
+worker.js

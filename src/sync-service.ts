@@ -1,6 +1,4 @@
-import { Line, Model } from "./store";
-
-export class SyncService<Row extends Model> {
+export class SyncService {
 	private baseUrl: string;
 	private token: string;
 	private table: string;
@@ -15,7 +13,7 @@ export class SyncService<Row extends Model> {
 		let page = 0;
 		let nextPage = true;
 		let fetchedVersion = 0;
-		let result = [] as Line[];
+		let result = [] as { id: string; data: string }[];
 		while (nextPage) {
 			const url = `${this.baseUrl}/${this.table}/${version}/${page}`;
 			const response = await fetch(url, {
@@ -27,25 +25,27 @@ export class SyncService<Row extends Model> {
 			const res = await response.json();
 			const output = JSON.parse(res.output) as {
 				version: number;
-				rows: Line[];
+				rows: { id: string; data: string }[];
 			};
-			nextPage = output.rows.length > 0;
+			nextPage = output.rows.length > 0 && version !== 0;
 			fetchedVersion = output.version;
 			result = result.concat(output.rows);
+			page = page + 1;
 		}
 		return { version: fetchedVersion, rows: result };
 	}
 
 	async latestVersion(): Promise<number> {
-		const url = `${this.baseUrl}/${this.table}`;
+		const url = `${this.baseUrl}/${this.table}/0/Infinity`;
 		const response = await fetch(url, {
-			method: "PUT",
+			method: "GET",
 			headers: {
 				Authorization: `Bearer ${this.token}`,
 			},
-			body: JSON.stringify({}),
 		});
-		return (await response.json()).output.version;
+		const res = await response.json();
+		if (res.success) return Number(JSON.parse(res.output).version);
+		else return 0;
 	}
 
 	async sendUpdates(data: { [key: string]: string }): Promise<number> {
@@ -58,16 +58,5 @@ export class SyncService<Row extends Model> {
 			body: JSON.stringify(data),
 		});
 		return Number((await response.json()).output);
-	}
-
-	async deleteData(ids: string[]): Promise<any> {
-		const url = `${this.baseUrl}/${this.table}/${ids.join("/")}`;
-		const response = await fetch(url, {
-			method: "DELETE",
-			headers: {
-				Authorization: `Bearer ${this.token}`,
-			},
-		});
-		return await response.json();
 	}
 }

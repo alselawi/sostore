@@ -3,18 +3,20 @@
 	"version": "0.0.1",
 	"description": "Mobx-Syncable-IndexedDB",
 	"main": "dist/main.js",
-  "type": "module",
+	"type": "module",
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"test": "vitest",
+		"build": "rollup -c"
 	},
 	"author": "elselawi",
 	"license": "MIT",
-	"dependencies": {
-		"mobx": "^6.13.0"
-	},
 	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20240620.0",
+		"fake-indexeddb": "^6.0.0",
+		"miniflare": "^3.20240701.0",
 		"rollup": "^4.18.0",
 		"rollup-plugin-typescript2": "^0.36.0",
-		"typescript": "^5.5.3"
+		"typescript": "^5.5.3",
+		"vitest": "^1.6.0"
 	}
 }

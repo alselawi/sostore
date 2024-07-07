@@ -196,4 +196,11 @@ export class IDB implements PersistenceLayer {
 	getMetadata(key: string): Promise<string> {
 		return this.metadataStore("readonly", (store) => this.pr(store.get(key)));
 	}
+
+	clearMetadata(): Promise<void> {
+		return this.metadataStore("readwrite", (store) => {
+			store.clear();
+			return this.pr(store.transaction);
+		});
+	}
 }

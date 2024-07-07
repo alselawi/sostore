@@ -76,7 +76,7 @@
             listener(changes);
         }
         catch (e) {
-            console.error(`XWebDB: Failed to notify listener ${listener} with ${changes}`, e);
+            console.error(`Failed to notify listener ${listener} with ${changes}`, e);
         }
     }
     function callObserversFromMT() {
@@ -722,24 +722,200 @@
         }
     }
 
-    class Store {
-        constructor({ name }) {
-            this.rows = observable([]);
-            this.idb = new IDB(name);
-            this.initialLoad();
-            this.setupObservers();
+    class SyncService {
+        constructor(baseUrl, token, table) {
+            this.baseUrl = baseUrl;
+            this.token = token;
+            this.table = table;
         }
-        initialLoad() {
+        fetchData() {
+            return __awaiter(this, arguments, void 0, function* (version = 0) {
+                let page = 0;
+                let nextPage = true;
+                let fetchedVersion = 0;
+                let result = [];
+                while (nextPage) {
+                    const url = `${this.baseUrl}/${this.table}/${version}/${page}`;
+                    const response = yield fetch(url, {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${this.token}`,
+                        },
+                    });
+                    const res = yield response.json();
+                    const output = JSON.parse(res.output);
+                    nextPage = output.rows.length > 0;
+                    fetchedVersion = output.version;
+                    result = result.concat(output.rows);
+                }
+                return { version: fetchedVersion, rows: result };
+            });
+        }
+        latestVersion() {
+            return __awaiter(this, void 0, void 0, function* () {
+                const url = `${this.baseUrl}/${this.table}`;
+                const response = yield fetch(url, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                    body: JSON.stringify({}),
+                });
+                return (yield response.json()).output.version;
+            });
+        }
+        sendUpdates(data) {
+            return __awaiter(this, void 0, void 0, function* () {
+                const url = `${this.baseUrl}/${this.table}`;
+                const response = yield fetch(url, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+                return Number((yield response.json()).output);
+            });
+        }
+        deleteData(ids) {
+            return __awaiter(this, void 0, void 0, function* () {
+                const url = `${this.baseUrl}/${this.table}/${ids.join("/")}`;
+                const response = yield fetch(url, {
+                    method: "DELETE",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                });
+                return yield response.json();
+            });
+        }
+    }
+
+    class Store {
+        constructor({ name, token, persist = true, }) {
+            this.isOnline = true;
+            this.observableObject = observable([]);
+            this.syncService = null;
+            this.idb = new IDB(name);
+            this.token = token;
+            if (persist) {
+                this.loadFromLocal();
+                this.setupObservers();
+                this.syncService = new SyncService("https://sync.apexo.app", this.token, name);
+            }
+        }
+        loadFromLocal() {
             return __awaiter(this, void 0, void 0, function* () {
                 const deserialized = (yield this.idb.values()).map((x) => JSON.parse(x));
-                this.rows.silently((o) => {
+                this.observableObject.silently((o) => {
                     o.splice(0, o.length, ...deserialized);
                 });
             });
         }
         setupObservers() {
-            this.rows.observe((changes) => {
-                console.log(changes);
+            this.observableObject.observe((changes) => __awaiter(this, void 0, void 0, function* () {
+                var _a;
+                for (const change of changes) {
+                    if (change.type === "insert" || change.type === "update") {
+                        const item = change.snapshot[change.path[0]];
+                        const line = {
+                            id: item.id,
+                            data: JSON.stringify(item),
+                        };
+                        const serializedLine = JSON.stringify(line);
+                        yield this.idb.set(item.id, serializedLine);
+                        if (this.isOnline) {
+                            const updateObj = {};
+                            updateObj[item.id] = serializedLine;
+                            yield ((_a = this.syncService) === null || _a === void 0 ? void 0 : _a.sendUpdates(updateObj));
+                        }
+                        else {
+                            const deferred = (yield this.idb.getMetadata("deferred")) || "[]";
+                            const deferredArray = JSON.parse(deferred);
+                            deferredArray.push({
+                                ts: Date.now(),
+                                data: line,
+                            });
+                            yield this.idb.setMetadata("deferred", JSON.stringify(deferredArray));
+                        }
+                    }
+                }
+            }));
+        }
+        localVersion() {
+            return __awaiter(this, void 0, void 0, function* () {
+                return Number(yield this.idb.getMetadata("version"));
+            });
+        }
+        get list() {
+            return this.observableObject.observable.filter((x) => x.$$deleted === false);
+        }
+        add(item) {
+            if (this.observableObject.observable.find((x) => x.id === item.id)) {
+                throw new Error("Duplicate ID detected.");
+            }
+            this.observableObject.observable.push(item);
+        }
+        delete(item) {
+            const index = this.observableObject.observable.findIndex((x) => x.id === item.id);
+            this.observableObject.observable[index].$$deleted = true;
+        }
+        update(index, item) {
+            this.observableObject.observable[index] = item;
+        }
+        sync() {
+            return __awaiter(this, void 0, void 0, function* () {
+                if (!this.syncService)
+                    return;
+                const localVersion = yield this.localVersion();
+                if (!localVersion) {
+                    // never synced with remote
+                    const { version, rows } = yield this.syncService.fetchData();
+                    for (const row of rows) {
+                        yield this.idb.set(row.id, row.data);
+                    }
+                    yield this.idb.setMetadata("version", version.toString());
+                    yield this.loadFromLocal();
+                    return;
+                }
+                const remoteVersion = yield this.syncService.latestVersion();
+                if (localVersion === remoteVersion) {
+                    return;
+                }
+                const deferred = (yield this.idb.getMetadata("deferred")) || "[]";
+                let deferredArray = JSON.parse(deferred);
+                const remoteUpdates = yield this.syncService.fetchData(localVersion);
+                // check for conflicts
+                deferredArray = deferredArray.filter((x) => {
+                    const conflict = remoteUpdates.rows.findIndex((y) => y.id === x.data.id);
+                    if (conflict === -1) {
+                        return true;
+                    }
+                    else if (x.ts > remoteVersion) {
+                        // there's a conflict, but the local change is newer
+                        remoteUpdates.rows.splice(conflict, 1);
+                        return true;
+                    }
+                    else {
+                        // there's a conflict, and the remote change is newer
+                        return false;
+                    }
+                });
+                // now we have local and remote to update
+                // we should start with remote
+                for (const remote of remoteUpdates.rows) {
+                    yield this.idb.set(remote.id, remote.data);
+                }
+                // then remote
+                const updatedRows = {};
+                for (const local of deferredArray) {
+                    updatedRows[local.data.id] = local.data.data;
+                }
+                yield this.syncService.sendUpdates(updatedRows);
+                // sync version
+                yield this.idb.setMetadata("version", (yield this.syncService.latestVersion()).toString());
+                // finally re-load local data
+                yield this.loadFromLocal();
             });
         }
     }

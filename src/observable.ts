@@ -82,10 +82,7 @@ function callObserverSafe<T>(
 	try {
 		listener(changes);
 	} catch (e) {
-		console.error(
-			`XWebDB: Failed to notify listener ${listener} with ${changes}`,
-			e
-		);
+		console.error(`Failed to notify listener ${listener} with ${changes}`, e);
 	}
 }
 function callObserversFromMT<T extends object>(this: OMetaBase<T>) {
@@ -723,9 +720,14 @@ function observable<D, A extends D[]>(
 	}
 
 	async function silently(work: (o: Observable<A>) => any) {
-		const observers = await unobserve();
-		await work(o);
-		observers.forEach((x) => observe(x));
+		const observers = await __unobserve(o);
+		try {
+			work(o);
+		} finally {
+			for (const observer of observers) {
+				__observe(o, observer);
+			}
+		}
 	}
 
 	return {
