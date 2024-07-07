@@ -10,10 +10,10 @@ export class Store<T extends Document> {
 	public isOnline = true;
 	public deferredPresent: boolean = false;
 
-	private $$idb: IDB;
-	private $$observableObject: ObservableArray<T[]> = observable([] as T[]);
+	private $$idb: IDB | undefined;
+	$$observableObject: ObservableArray<T[]> = observable([] as T[]);
 	private $$changes: Change<T[]>[] = [];
-	private $$token: string;
+	private $$token: string | undefined;
 	private $$syncService: SyncService | null = null;
 	private $$debounceRate: number = 100;
 	private $$lastProcessChanges: number = 0;
@@ -31,8 +31,8 @@ export class Store<T extends Document> {
 		encode,
 		decode,
 	}: {
-		name: string;
-		token: string;
+		name?: string;
+		token?: string;
 		persist?: boolean;
 		endpoint?: string;
 		debounceRate?: number;
@@ -40,9 +40,9 @@ export class Store<T extends Document> {
 		encode?: (input: string) => string;
 		decode?: (input: string) => string;
 	}) {
-		this.$$idb = new IDB(name);
-		this.$$token = token;
+
 		this.$$model = model || Document;
+
 		if (encode) {
 			this.$$encode = encode;
 		}
@@ -52,9 +52,13 @@ export class Store<T extends Document> {
 		if (typeof debounceRate === "number") {
 			this.$$debounceRate = debounceRate;
 		}
-		if (persist && endpoint) {
+		if(name && persist) {
+			this.$$idb = new IDB(name);
 			this.$$loadFromLocal();
 			this.$$setupObservers();
+		}
+		if(token && endpoint && name && persist) {
+			this.$$token = token;
 			this.$$syncService = new SyncService(endpoint, this.$$token, name);
 		}
 	}
@@ -85,6 +89,7 @@ export class Store<T extends Document> {
 	}
 
 	private async $$loadFromLocal() {
+		if(!this.$$idb) return;
 		const deserialized = (await this.$$idb.values()).map((x) =>
 			this.$$deserialize(x)
 		) as T[];
@@ -94,6 +99,7 @@ export class Store<T extends Document> {
 	}
 
 	private async $$processChanges() {
+		if(!this.$$idb) return;
 		this.$$lastProcessChanges = Date.now();
 
 		const toWriteLocally: [string, string][] = [];
@@ -164,6 +170,7 @@ export class Store<T extends Document> {
 	}
 
 	private async $$localVersion() {
+		if(!this.$$idb) return 0;
 		return Number((await this.$$idb.getMetadata("version")) || 0);
 	}
 
@@ -199,11 +206,16 @@ export class Store<T extends Document> {
 	 * 12. return the number of pushed and pulled updates
 	 * **************************************************************************
 	 */
-	async $$syncTry(): Promise<{
+	private async $$syncTry(): Promise<{
 		pushed?: number;
 		pulled?: number;
 		exception?: string;
 	}> {
+		if(!this.$$idb) {
+			return {
+				exception: "IDB not available",
+			};
+		};
 		if (!this.$$syncService) {
 			return {
 				exception: "Sync service not available",

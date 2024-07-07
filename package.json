@@ -1,12 +1,14 @@
 {
-	"name": "msidb",
-	"version": "0.0.1",
+	"name": "apical-store",
+	"version": "0.0.51",
 	"description": "Mobx-Syncable-IndexedDB",
-	"main": "dist/main.js",
+	"main": "dist/bundle.js",
+	"module": "dist/main.js",
 	"type": "module",
+	"types": "dist/main.d.ts",
 	"scripts": {
 		"test": "vitest",
-		"build": "rollup -c"
+		"build": "rollup -c && tsc"
 	},
 	"author": "elselawi",
 	"license": "MIT",

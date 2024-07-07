@@ -3,6 +3,8 @@
 # Ignore dependencies
 node_modules
 
+testing-reactivity
+
 # Ignore logs and temporary files
 *.log
 *.tmp
