@@ -2,16 +2,17 @@ import { Change, observable, ObservableArray } from "./observable";
 import { IDB } from "./idb";
 import { SyncService } from "./sync-service";
 import { debounce } from "./debounce";
-import { Document, RecursivePartial } from "./model";
+import { Document } from "./model";
 
 export type deferredArray = { ts: number; data: string }[];
 
 export class Store<T extends Document> {
 	public isOnline = true;
 	public deferredPresent: boolean = false;
-
+	public onSyncStart: () => void = () => {};
+	public onSyncEnd: () => void = () => {};
 	private $$idb: IDB | undefined;
-	$$observableObject: ObservableArray<T[]> = observable([] as T[]);
+	private $$observableObject: ObservableArray<T[]> = observable([] as T[]);
 	private $$changes: Change<T[]>[] = [];
 	private $$token: string | undefined;
 	private $$syncService: SyncService | null = null;
@@ -30,6 +31,8 @@ export class Store<T extends Document> {
 		model,
 		encode,
 		decode,
+		onSyncStart,
+		onSyncEnd,
 	}: {
 		name?: string;
 		token?: string;
@@ -39,10 +42,16 @@ export class Store<T extends Document> {
 		model?: typeof Document;
 		encode?: (input: string) => string;
 		decode?: (input: string) => string;
+		onSyncStart?: () => void;
+		onSyncEnd?: () => void;
 	}) {
-
 		this.$$model = model || Document;
-
+		if (onSyncStart) {
+			this.onSyncStart = onSyncStart;
+		}
+		if (onSyncEnd) {
+			this.onSyncEnd = onSyncEnd;
+		}
 		if (encode) {
 			this.$$encode = encode;
 		}
@@ -52,12 +61,12 @@ export class Store<T extends Document> {
 		if (typeof debounceRate === "number") {
 			this.$$debounceRate = debounceRate;
 		}
-		if(name && persist) {
+		if (name && persist) {
 			this.$$idb = new IDB(name);
 			this.$$loadFromLocal();
 			this.$$setupObservers();
 		}
-		if(token && endpoint && name && persist) {
+		if (token && endpoint && name && persist) {
 			this.$$token = token;
 			this.$$syncService = new SyncService(endpoint, this.$$token, name);
 		}
@@ -89,7 +98,7 @@ export class Store<T extends Document> {
 	}
 
 	private async $$loadFromLocal() {
-		if(!this.$$idb) return;
+		if (!this.$$idb) return;
 		const deserialized = (await this.$$idb.values()).map((x) =>
 			this.$$deserialize(x)
 		) as T[];
@@ -99,7 +108,9 @@ export class Store<T extends Document> {
 	}
 
 	private async $$processChanges() {
-		if(!this.$$idb) return;
+		if (!this.$$idb) return;
+		if (this.$$changes.length === 0) return;
+		this.onSyncStart();
 		this.$$lastProcessChanges = Date.now();
 
 		const toWriteLocally: [string, string][] = [];
@@ -127,6 +138,7 @@ export class Store<T extends Document> {
 		if (this.isOnline && this.$$syncService && deferredArray.length === 0) {
 			try {
 				await this.$$syncService.sendUpdates(toSendRemotely);
+				this.onSyncEnd();
 				return;
 			} catch (e) {
 				console.error("Will defer updates, due to error during sending.");
@@ -143,6 +155,7 @@ export class Store<T extends Document> {
 		deferredArray = deferredArray.concat(...toDeffer);
 		await this.$$idb.setMetadata("deferred", JSON.stringify(deferredArray));
 		this.deferredPresent = true;
+		this.onSyncEnd();
 	}
 
 	private $$setupObservers() {
@@ -170,7 +183,7 @@ export class Store<T extends Document> {
 	}
 
 	private async $$localVersion() {
-		if(!this.$$idb) return 0;
+		if (!this.$$idb) return 0;
 		return Number((await this.$$idb.getMetadata("version")) || 0);
 	}
 
@@ -190,7 +203,7 @@ export class Store<T extends Document> {
 	 * Local updates are automatically sent to the remote server.
 	 * If there's an error during sending updates, the updates are stored in a deferred array.
 	 * ***************************************************************************
-	 * 
+	 *
 	 * The sync mechanism is as follows:
 	 * 1. Fetch the local version
 	 * 2. Fetch the remote version
@@ -211,11 +224,11 @@ export class Store<T extends Document> {
 		pulled?: number;
 		exception?: string;
 	}> {
-		if(!this.$$idb) {
+		if (!this.$$idb) {
 			return {
 				exception: "IDB not available",
 			};
-		};
+		}
 		if (!this.$$syncService) {
 			return {
 				exception: "Sync service not available",
@@ -245,9 +258,16 @@ export class Store<T extends Document> {
 			deferredArray = deferredArray.filter((x) => {
 				let item = this.$$deserialize(x.data);
 				const conflict = remoteUpdates.rows.findIndex((y) => y.id === item.id);
+				const comparison = Number(
+					(
+						remoteUpdates.rows[conflict] as
+							| { id: string; data: string; ts?: string }
+							| undefined
+					)?.ts || remoteVersion
+				);
 				if (conflict === -1) {
 					return true;
-				} else if (x.ts > remoteVersion) {
+				} else if (x.ts > comparison) {
 					// there's a conflict, but the local change is newer
 					remoteUpdates.rows.splice(conflict, 1);
 					return true;
@@ -303,15 +323,21 @@ export class Store<T extends Document> {
 	}
 
 	private async $$sync() {
+		this.onSyncStart();
 		let tries: { exception?: string; pushed?: number; pulled?: number }[] = [];
-		let exceptionOccurred = false;
-		while (!exceptionOccurred) {
-			const result = await this.$$syncTry();
-			if (result.exception) {
-				exceptionOccurred = true;
+		try {
+			let exceptionOccurred = false;
+			while (!exceptionOccurred) {
+				const result = await this.$$syncTry();
+				if (result.exception) {
+					exceptionOccurred = true;
+				}
+				tries.push(result);
 			}
-			tries.push(result);
+		} catch (e) {
+			console.error(e);
 		}
+		this.onSyncEnd();
 		return tries;
 	}
 
@@ -373,6 +399,9 @@ export class Store<T extends Document> {
 	sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
 
 	async isUpdated() {
-		return this.$$syncService ? (await this.$$syncService.latestVersion() === await this.$$localVersion()) : true;
+		return this.$$syncService
+			? (await this.$$syncService.latestVersion()) ===
+					(await this.$$localVersion())
+			: true;
 	}
 }

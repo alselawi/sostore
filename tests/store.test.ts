@@ -1016,7 +1016,7 @@ describe("Store", () => {
 		expect((await (store as any).$$idb.values()).length).toBe(2); // 5.5
 	});
 
-	it("Deferred changes must pushes only the latest change", async () =>{
+	it("Deferred changes must pushes only the latest change", async () => {
 		{
 			// clearing local database before starting
 			store = new Store({
@@ -1048,7 +1048,6 @@ describe("Store", () => {
 
 		store.updateByIndex(0, { id: "1", name: "mark" });
 		await new Promise((r) => setTimeout(r, 300));
-
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -1097,7 +1096,7 @@ describe("Store", () => {
 		).toBe('{"id":"1","name":"mark"}');
 	});
 
-	it("If there are already deferred changes, no updates shall be sent unless there's a sync process", async () =>{
+	it("If there are already deferred changes, no updates shall be sent unless there's a sync process", async () => {
 		{
 			// clearing local database before starting
 			store = new Store({

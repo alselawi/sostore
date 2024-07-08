@@ -1,5 +1,8 @@
 # Apical-Store
 
+// TODO: check version in conflicts for each row
+// TODO: check next page when fetching (are we?)
+
 Example workflow
 ```typescript
 import { Document, Store, SubDocument, mapSubModel, observe } from "apical-store";

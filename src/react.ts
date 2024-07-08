@@ -10,8 +10,8 @@ export function observe<D extends Document, G extends Store<D>>(
             let unObservers: (() => void)[] = [];
             this.setState({});
             const observer = () => this.setState({});
-            store.$$observableObject.observe(observer);
-            unObservers.push(() => store.$$observableObject.unobserve(observer));
+            (store as any).$$observableObject.observe(observer);
+            unObservers.push(() => (store as any).$$observableObject.unobserve(observer));
             const oCWU = this.componentWillUnmount || (() => {});
             this.componentWillUnmount = () => {
                 unObservers.forEach((u) => u());
