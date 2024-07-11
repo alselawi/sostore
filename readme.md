@@ -2,7 +2,7 @@
 
 Example workflow
 ```typescript
-import { Document, Store, SubDocument, mapSubModel, observe } from "apical-store";
+import { Document, Store, SubDocument, mapSubModel, observe, CloudFlareApexoDB, IDB } from "apical-store";
 
 class Department extends SubDocument {
     name: string = "";
@@ -18,17 +18,21 @@ class Employee extends Document {
 
 
 const myStore = new Store<Employee>({
-    name: "my-store", // remote table name and local indexedDB
+    localPersistance: new IDB({
+        name: "my-database"
+    }),
+    remotePersistence: new CloudFlareApexoDB({
+        endpoint: "http://someurl",
+        token: "token",
+        name: "my-database",
+    }),
     model: Employee,
-    persist: true,
-    endpoint: "http://api.myendpoint.com",
-    token: "my-token",
     debounceRate: 1000,
     encode: (data: any) => JSON.stringify(data),
     decode: (data: string) => JSON.parse(data)
 });
 
-@observe(myStore)
+@observe([myStore])
 class MyComponent extends React.Component {
     render() {
         return <div>
