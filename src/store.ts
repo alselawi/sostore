@@ -4,21 +4,19 @@ import { debounce } from "./debounce";
 import { Document } from "./model";
 import { RemotePersistence } from "./persistence/remote";
 
-export class Store<
-	T extends Document,
-> {
+export class Store<T extends Document> {
 	public isOnline = true;
 	public deferredPresent: boolean = false;
 	public onSyncStart: () => void = () => {};
 	public onSyncEnd: () => void = () => {};
 	private $$observableObject: Observable<T> = new Observable([] as T[]);
 	private $$changes: Change<T[]>[] = [];
-	private $$token: string | undefined;
+	private $$loaded: boolean = false;
 	private $$localPersistence: LocalPersistence | undefined;
 	private $$remotePersistence: RemotePersistence | undefined;
 	private $$debounceRate: number = 100;
 	private $$lastProcessChanges: number = 0;
-	private $$model: typeof Document;
+	private $$model: typeof Document = Document;
 	private $$encode: (input: string) => string = (x) => x;
 	private $$decode: (input: string) => string = (x) => x;
 
@@ -118,6 +116,7 @@ export class Store<
 		// Update the observable array silently with deserialized data
 		this.$$observableObject.silently((o) => {
 			o.splice(0, o.length, ...deserialized);
+			this.$$loaded = true;
 		});
 	}
 
@@ -143,7 +142,7 @@ export class Store<
 				data: serializedLine,
 			});
 		}
-		
+
 		await this.$$localPersistence.put(toWrite);
 		let deferredArray = await this.$$localPersistence.getDeferred();
 		if (
@@ -378,6 +377,8 @@ export class Store<
 		this.$$observableObject.target.push(item);
 	}
 
+	new = this.$$model.new;
+
 	delete(item: T) {
 		const index = this.$$observableObject.target.findIndex(
 			(x) => x.id === item.id
@@ -422,5 +423,16 @@ export class Store<
 				(await this.$$remotePersistence.getVersion())
 			);
 		} else return false;
+	}
+
+	get loaded() {
+		return new Promise<void>((resolve) => {
+			let i = setInterval(() => {
+				if (this.$$loaded) {
+					clearInterval(i);
+					resolve();
+				}
+			}, 100);
+		});
 	}
 }

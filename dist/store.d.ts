@@ -1,38 +1,50 @@
-import { ObservableArray } from "./observable";
+import { LocalPersistence } from "./persistence/local";
 import { Document } from "./model";
-export type deferredArray = {
-    ts: number;
-    data: string;
-}[];
+import { RemotePersistence } from "./persistence/remote";
 export declare class Store<T extends Document> {
     isOnline: boolean;
     deferredPresent: boolean;
-    private $$idb;
-    $$observableObject: ObservableArray<T[]>;
+    onSyncStart: () => void;
+    onSyncEnd: () => void;
+    private $$observableObject;
     private $$changes;
-    private $$token;
-    private $$syncService;
+    private $$loaded;
+    private $$localPersistence;
+    private $$remotePersistence;
     private $$debounceRate;
     private $$lastProcessChanges;
     private $$model;
     private $$encode;
     private $$decode;
-    constructor({ name, token, persist, endpoint, debounceRate, model, encode, decode, }: {
-        name?: string;
-        token?: string;
-        persist?: boolean;
-        endpoint?: string;
+    constructor({ debounceRate, model, encode, decode, onSyncStart, onSyncEnd, localPersistence, remotePersistence, }?: {
         debounceRate?: number;
         model?: typeof Document;
         encode?: (input: string) => string;
         decode?: (input: string) => string;
+        onSyncStart?: () => void;
+        onSyncEnd?: () => void;
+        localPersistence?: LocalPersistence;
+        remotePersistence?: RemotePersistence;
     });
+    /**
+     * Serializes an item of type T into an encoded JSON string.
+     * Date objects are converted to a custom format before encoding.
+     * @param item An instance of type T which extends Document.
+     * @returns An encoded JSON string representing the item.
+     */
     private $$serialize;
+    /**
+     * Decodes a serialized string, parses it into a JavaScript object, and converts custom date formats back into Date objects.
+     * @param line A string representing the serialized data.
+     * @returns A new instance of the model with the deserialized data.
+     */
     private $$deserialize;
+    /**
+     * Loads data from an IndexedDB instance, deserializes it, and updates the observable array silently without triggering observers.
+     */
     private $$loadFromLocal;
     private $$processChanges;
     private $$setupObservers;
-    private $$localVersion;
     /**
      *
      * Sync mechanism and explanation:
@@ -71,8 +83,12 @@ export declare class Store<T extends Document> {
      * Public methods, to be used by the application
      */
     get list(): T[];
+    copy: T[];
     getByID(id: string): T | undefined;
     add(item: T): void;
+    new: <T_1 extends {
+        _stripDefaults?<T_2 extends any>(this: T_2): T_2;
+    }>(this: new () => T_1, data?: import("./model").RecursivePartial<T_1>) => T_1;
     delete(item: T): void;
     deleteByIndex(index: number): void;
     deleteByID(id: string): void;
@@ -83,4 +99,5 @@ export declare class Store<T extends Document> {
         pulled?: number;
     }[]>>>;
     isUpdated(): Promise<boolean>;
+    get loaded(): Promise<void>;
 }

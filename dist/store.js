@@ -7,24 +7,33 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-import { observable } from "./observable";
-import { IDB } from "./idb";
-import { SyncService } from "./sync-service";
+import { Observable } from "./observable";
 import { debounce } from "./debounce";
 import { Document } from "./model";
 export class Store {
-    constructor({ name, token, persist = true, endpoint, debounceRate, model, encode, decode, }) {
+    constructor({ debounceRate, model, encode, decode, onSyncStart, onSyncEnd, localPersistence, remotePersistence, } = {}) {
         this.isOnline = true;
         this.deferredPresent = false;
-        this.$$observableObject = observable([]);
+        this.onSyncStart = () => { };
+        this.onSyncEnd = () => { };
+        this.$$observableObject = new Observable([]);
         this.$$changes = [];
-        this.$$syncService = null;
+        this.$$loaded = false;
         this.$$debounceRate = 100;
         this.$$lastProcessChanges = 0;
+        this.$$model = Document;
         this.$$encode = (x) => x;
         this.$$decode = (x) => x;
+        this.copy = this.$$observableObject.copy;
+        this.new = this.$$model.new;
         this.sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
         this.$$model = model || Document;
+        if (onSyncStart) {
+            this.onSyncStart = onSyncStart;
+        }
+        if (onSyncEnd) {
+            this.onSyncEnd = onSyncEnd;
+        }
         if (encode) {
             this.$$encode = encode;
         }
@@ -34,16 +43,21 @@ export class Store {
         if (typeof debounceRate === "number") {
             this.$$debounceRate = debounceRate;
         }
-        if (name && persist) {
-            this.$$idb = new IDB(name);
+        if (localPersistence) {
+            this.$$localPersistence = localPersistence;
             this.$$loadFromLocal();
             this.$$setupObservers();
         }
-        if (token && endpoint && name && persist) {
-            this.$$token = token;
-            this.$$syncService = new SyncService(endpoint, this.$$token, name);
+        if (remotePersistence) {
+            this.$$remotePersistence = remotePersistence;
         }
     }
+    /**
+     * Serializes an item of type T into an encoded JSON string.
+     * Date objects are converted to a custom format before encoding.
+     * @param item An instance of type T which extends Document.
+     * @returns An encoded JSON string representing the item.
+     */
     $$serialize(item) {
         const stripped = item._stripDefaults ? item._stripDefaults() : item;
         const str = JSON.stringify(stripped, function (key, value) {
@@ -57,12 +71,17 @@ export class Store {
         });
         return this.$$encode(str);
     }
+    /**
+     * Decodes a serialized string, parses it into a JavaScript object, and converts custom date formats back into Date objects.
+     * @param line A string representing the serialized data.
+     * @returns A new instance of the model with the deserialized data.
+     */
     $$deserialize(line) {
         line = this.$$decode(line);
-        const item = JSON.parse(line, function (key, val) {
+        const item = JSON.parse(line, (key, val) => {
             if (key === "$$date")
                 return new Date(val);
-            let t = typeof val;
+            const t = typeof val;
             if (t === "string" || t === "number" || t === "boolean" || val === null)
                 return val;
             if (val && val.$$date)
@@ -71,23 +90,32 @@ export class Store {
         });
         return this.$$model.new(item);
     }
+    /**
+     * Loads data from an IndexedDB instance, deserializes it, and updates the observable array silently without triggering observers.
+     */
     $$loadFromLocal() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!this.$$idb)
+            // Check if IndexedDB instance is available
+            if (!this.$$localPersistence)
                 return;
-            const deserialized = (yield this.$$idb.values()).map((x) => this.$$deserialize(x));
+            // Retrieve values from IndexedDB and deserialize them
+            const deserialized = yield Promise.all((yield this.$$localPersistence.getAll()).map((x) => this.$$deserialize(x)));
+            // Update the observable array silently with deserialized data
             this.$$observableObject.silently((o) => {
                 o.splice(0, o.length, ...deserialized);
+                this.$$loaded = true;
             });
         });
     }
     $$processChanges() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!this.$$idb)
+            if (!this.$$localPersistence)
                 return;
+            if (this.$$changes.length === 0)
+                return;
+            this.onSyncStart();
             this.$$lastProcessChanges = Date.now();
-            const toWriteLocally = [];
-            const toSendRemotely = {};
+            const toWrite = [];
             const toDeffer = [];
             const changesToProcess = [...this.$$changes]; // Create a copy of changes to process
             this.$$changes = []; // Clear the original changes array
@@ -95,19 +123,20 @@ export class Store {
                 const change = changesToProcess[index];
                 const item = change.snapshot[change.path[0]];
                 const serializedLine = this.$$serialize(item);
-                toWriteLocally.push([item.id, serializedLine]);
-                toSendRemotely[item.id] = serializedLine;
+                toWrite.push([item.id, serializedLine]);
                 toDeffer.push({
                     ts: Date.now(),
                     data: serializedLine,
                 });
             }
-            yield this.$$idb.setBulk(toWriteLocally);
-            const deferred = (yield this.$$idb.getMetadata("deferred")) || "[]";
-            let deferredArray = JSON.parse(deferred);
-            if (this.isOnline && this.$$syncService && deferredArray.length === 0) {
+            yield this.$$localPersistence.put(toWrite);
+            let deferredArray = yield this.$$localPersistence.getDeferred();
+            if (this.isOnline &&
+                this.$$remotePersistence &&
+                deferredArray.length === 0) {
                 try {
-                    yield this.$$syncService.sendUpdates(toSendRemotely);
+                    yield this.$$remotePersistence.put(toWrite);
+                    this.onSyncEnd();
                     return;
                 }
                 catch (e) {
@@ -121,9 +150,9 @@ export class Store {
              * 2. There's an error during sending updates to the remote server
              * 3. We're offline
              */
-            deferredArray = deferredArray.concat(...toDeffer);
-            yield this.$$idb.setMetadata("deferred", JSON.stringify(deferredArray));
+            yield this.$$localPersistence.putDeferred(deferredArray.concat(...toDeffer));
             this.deferredPresent = true;
+            this.onSyncEnd();
         });
     }
     $$setupObservers() {
@@ -141,13 +170,6 @@ export class Store {
                 this.$$processChanges();
             }, nextRun > 0 ? nextRun : 0);
         }));
-    }
-    $$localVersion() {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!this.$$idb)
-                return 0;
-            return Number((yield this.$$idb.getMetadata("version")) || 0);
-        });
     }
     /**
      *
@@ -183,15 +205,14 @@ export class Store {
      */
     $$syncTry() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!this.$$idb) {
+            if (!this.$$localPersistence) {
                 return {
-                    exception: "IDB not available",
+                    exception: "Local persistence not available",
                 };
             }
-            ;
-            if (!this.$$syncService) {
+            if (!this.$$remotePersistence) {
                 return {
-                    exception: "Sync service not available",
+                    exception: "Remote persistence not available",
                 };
             }
             if (!this.isOnline) {
@@ -200,25 +221,27 @@ export class Store {
                 };
             }
             try {
-                const localVersion = yield this.$$localVersion();
-                const remoteVersion = yield this.$$syncService.latestVersion();
-                const deferred = (yield this.$$idb.getMetadata("deferred")) || "[]";
-                let deferredArray = JSON.parse(deferred);
+                const localVersion = yield this.$$localPersistence.getVersion();
+                const remoteVersion = yield this.$$remotePersistence.getVersion();
+                let deferredArray = yield this.$$localPersistence.getDeferred();
                 if (localVersion === remoteVersion && deferredArray.length === 0) {
                     return {
                         exception: "Nothing to sync",
                     };
                 }
                 // fetch updates since our local version
-                const remoteUpdates = yield this.$$syncService.fetchData(localVersion);
+                const remoteUpdates = yield this.$$remotePersistence.getSince(localVersion);
                 // check for conflicts
                 deferredArray = deferredArray.filter((x) => {
+                    var _a;
                     let item = this.$$deserialize(x.data);
                     const conflict = remoteUpdates.rows.findIndex((y) => y.id === item.id);
+                    // take row-specific version if available, otherwise rely on latest version
+                    const comparison = Number(((_a = remoteUpdates.rows[conflict]) === null || _a === void 0 ? void 0 : _a.ts) || remoteVersion);
                     if (conflict === -1) {
                         return true;
                     }
-                    else if (x.ts > remoteVersion) {
+                    else if (x.ts > comparison) {
                         // there's a conflict, but the local change is newer
                         remoteUpdates.rows.splice(conflict, 1);
                         return true;
@@ -230,22 +253,22 @@ export class Store {
                 });
                 // now we have local and remote to update
                 // we should start with remote
-                for (const remote of remoteUpdates.rows) {
-                    yield this.$$idb.set(remote.id, remote.data);
-                }
+                yield this.$$localPersistence.put(remoteUpdates.rows.map((row) => [row.id, row.data]));
                 // then local
-                const updatedRows = {};
+                const updatedRows = new Map();
                 for (const local of deferredArray) {
                     let item = this.$$deserialize(local.data);
-                    updatedRows[item.id] = local.data;
+                    updatedRows.set(item.id, local.data);
                     // latest deferred write wins since it would overwrite the previous one
                 }
-                yield this.$$syncService.sendUpdates(updatedRows);
+                yield this.$$remotePersistence.put([...updatedRows.keys()].map((x) => [x, updatedRows.get(x)]));
                 // reset deferred
-                yield this.$$idb.setMetadata("deferred", "[]");
+                yield this.$$localPersistence.putDeferred([]);
                 this.deferredPresent = false;
-                // set local version
-                yield this.$$idb.setMetadata("version", remoteUpdates.version.toString());
+                // set local version to the version given by the current request
+                // this might be outdated as soon as this functions ends
+                // that's why this function will run on a while loop (below)
+                yield this.$$localPersistence.putVersion(remoteUpdates.version);
                 // but if we had deferred updates then the remoteUpdates.version is outdated
                 // so we need to fetch the latest version again
                 // however, we should not do this in the same run since there might be updates
@@ -270,15 +293,22 @@ export class Store {
     }
     $$sync() {
         return __awaiter(this, void 0, void 0, function* () {
+            this.onSyncStart();
             let tries = [];
-            let exceptionOccurred = false;
-            while (!exceptionOccurred) {
-                const result = yield this.$$syncTry();
-                if (result.exception) {
-                    exceptionOccurred = true;
+            try {
+                let exceptionOccurred = false;
+                while (!exceptionOccurred) {
+                    const result = yield this.$$syncTry();
+                    if (result.exception) {
+                        exceptionOccurred = true;
+                    }
+                    tries.push(result);
                 }
-                tries.push(result);
             }
+            catch (e) {
+                console.error(e);
+            }
+            this.onSyncEnd();
             return tries;
         });
     }
@@ -286,49 +316,64 @@ export class Store {
      * Public methods, to be used by the application
      */
     get list() {
-        return this.$$observableObject.observable.filter((x) => !x.$$deleted);
+        return this.$$observableObject.target.filter((x) => !x.$$deleted);
     }
     getByID(id) {
-        return this.$$observableObject.observable.find((x) => x.id === id);
+        return this.$$observableObject.target.find((x) => x.id === id);
     }
     add(item) {
-        if (this.$$observableObject.observable.find((x) => x.id === item.id)) {
+        if (this.$$observableObject.target.find((x) => x.id === item.id)) {
             throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
         }
-        this.$$observableObject.observable.push(item);
+        this.$$observableObject.target.push(item);
     }
     delete(item) {
-        const index = this.$$observableObject.observable.findIndex((x) => x.id === item.id);
+        const index = this.$$observableObject.target.findIndex((x) => x.id === item.id);
         if (index === -1) {
             throw new Error("Item not found.");
         }
         this.deleteByIndex(index);
     }
     deleteByIndex(index) {
-        if (!this.$$observableObject.observable[index]) {
+        if (!this.$$observableObject.target[index]) {
             throw new Error("Item not found.");
         }
-        this.$$observableObject.observable[index].$$deleted = true;
+        this.$$observableObject.target[index].$$deleted = true;
     }
     deleteByID(id) {
-        const index = this.$$observableObject.observable.findIndex((x) => x.id === id);
+        const index = this.$$observableObject.target.findIndex((x) => x.id === id);
         if (index === -1) {
             throw new Error("Item not found.");
         }
         this.deleteByIndex(index);
     }
     updateByIndex(index, item) {
-        if (!this.$$observableObject.observable[index]) {
+        if (!this.$$observableObject.target[index]) {
             throw new Error("Item not found.");
         }
-        if (this.$$observableObject.observable[index].id !== item.id) {
+        if (this.$$observableObject.target[index].id !== item.id) {
             throw new Error("ID mismatch.");
         }
-        this.$$observableObject.observable[index] = item;
+        this.$$observableObject.target[index] = item;
     }
     isUpdated() {
         return __awaiter(this, void 0, void 0, function* () {
-            return this.$$syncService ? ((yield this.$$syncService.latestVersion()) === (yield this.$$localVersion())) : true;
+            if (this.$$localPersistence && this.$$remotePersistence) {
+                return ((yield this.$$localPersistence.getVersion()) ===
+                    (yield this.$$remotePersistence.getVersion()));
+            }
+            else
+                return false;
+        });
+    }
+    get loaded() {
+        return new Promise((resolve) => {
+            let i = setInterval(() => {
+                if (this.$$loaded) {
+                    clearInterval(i);
+                    resolve();
+                }
+            }, 100);
         });
     }
 }

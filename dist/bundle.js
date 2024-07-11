@@ -36,8 +36,49 @@
         return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
     };
 
+    // polyfill
+    (function (global) {
+        if (typeof global.queueMicrotask !== "function") {
+            global.queueMicrotask = function (callback) {
+                Promise.resolve().then(callback);
+            };
+        }
+    })(typeof global !== "undefined"
+        ? global
+        : typeof window !== "undefined"
+            ? window
+            : undefined);
+    function findGrandParent(observable) {
+        if (observable.parent)
+            return findGrandParent(observable.parent);
+        else
+            return observable;
+    }
+    function copy(obj) {
+        if (obj === null || typeof obj !== "object") {
+            return obj;
+        }
+        if (obj instanceof Date) {
+            return new Date(obj.getTime());
+        }
+        if (Array.isArray(obj)) {
+            const arrCopy = [];
+            for (const item of obj) {
+                arrCopy.push(copy(item));
+            }
+            return arrCopy;
+        }
+        const objCopy = {};
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                objCopy[key] = copy(obj[key]);
+            }
+        }
+        return objCopy;
+    }
+
     /**
-     * Creating an an observable array
+     * Constants
      */
     const INSERT = "insert";
     const UPDATE = "update";
@@ -45,115 +86,72 @@
     const REVERSE = "reverse";
     const SHUFFLE = "shuffle";
     const oMetaKey = Symbol.for("object-observer-meta-key-0");
-    function findGrandParent(observable) {
-        if (observable.parent)
-            return findGrandParent(observable.parent);
-        else
-            return observable;
-    }
-    function copy(v) {
-        return JSON.parse(JSON.stringify({ tmp: v })).tmp;
-    }
-    function prepareObject(source, oMeta, visited) {
-        const target = {};
-        target[oMetaKey] = oMeta;
-        for (const key in source) {
-            target[key] = getObservedOf(source[key], key, oMeta, visited);
-        }
-        return target;
-    }
-    function prepareArray(source, oMeta, visited) {
-        let l = source.length;
-        const target = new Array(l);
-        target[oMetaKey] = oMeta;
-        for (let i = 0; i < l; i++) {
-            target[i] = getObservedOf(source[i], i, oMeta, visited);
-        }
-        return target;
-    }
-    function callObserverSafe(listener, changes) {
-        try {
-            listener(changes);
-        }
-        catch (e) {
-            console.error(`Failed to notify listener ${listener} with ${changes}`, e);
+
+    /**
+     * Change class:
+     * any change that would be sent to the observer will contain this class properties
+     */
+    class Change {
+        constructor(type, path, value, oldValue, object, snapshot) {
+            this.type = type;
+            this.path = path;
+            this.value = copy(value);
+            this.oldValue = copy(oldValue);
+            this.object = object;
+            this.snapshot = snapshot;
         }
     }
-    function callObserversFromMT() {
-        const batches = this.batches;
-        this.batches = [];
-        for (const [listener, changes] of batches) {
-            callObserverSafe(listener, changes);
-        }
-    }
-    function callObservers(oMeta, changes) {
-        let currentObservable = oMeta;
-        const l = changes.length;
-        do {
-            let observers = currentObservable.observers;
-            let i = observers.length;
-            while (i--) {
-                let target = observers[i];
-                if (changes.length) {
-                    if (currentObservable.batches.length === 0) {
-                        // @ts-ignore
-                        queueMicrotask(callObserversFromMT.bind(currentObservable));
-                    }
-                    let rb;
-                    for (const batch of currentObservable.batches) {
-                        if (batch[0] === target) {
-                            rb = batch;
-                            break;
-                        }
-                    }
-                    if (!rb) {
-                        rb = [target, []];
-                        currentObservable.batches.push(rb);
-                    }
-                    Array.prototype.push.apply(rb[1], changes);
-                }
+
+    const prepare = {
+        object(source, oMeta, visited) {
+            const target = {};
+            target[oMetaKey] = oMeta;
+            for (const key in source) {
+                target[key] = prepare.getObservedOf(source[key], key, oMeta, visited);
             }
-            //	cloning all the changes and notifying in context of parent
-            const parent = currentObservable.parent;
-            if (parent) {
-                for (let j = 0; j < l; j++) {
-                    const change = changes[j];
-                    changes[j] = new Change(change.type, [currentObservable.ownKey, ...change.path], change.value, change.oldValue, change.object, copy(findGrandParent(currentObservable).proxy));
-                }
-                currentObservable = parent;
+            return target;
+        },
+        array(source, oMeta, visited) {
+            let l = source.length;
+            const target = new Array(l);
+            target[oMetaKey] = oMeta;
+            for (let i = 0; i < l; i++) {
+                target[i] = prepare.getObservedOf(source[i], i, oMeta, visited);
+            }
+            return target;
+        },
+        getObservedOf(item, key, parent, visited) {
+            if (visited !== undefined && visited.has(item)) {
+                return null;
+            }
+            else if (typeof item !== "object" || item === null) {
+                return item;
+            }
+            else if (Array.isArray(item)) {
+                return new ObservableArrayMeta({
+                    target: item,
+                    ownKey: key,
+                    parent: parent,
+                    visited,
+                }).proxy;
+            }
+            else if (item instanceof Date) {
+                return item;
             }
             else {
-                currentObservable = null;
+                return new ObservableObjectMeta({
+                    target: item,
+                    ownKey: key,
+                    parent: parent,
+                    visited,
+                }).proxy;
             }
-        } while (currentObservable);
-    }
-    function getObservedOf(item, key, parent, visited) {
-        if (visited !== undefined && visited.has(item)) {
-            return null;
-        }
-        else if (typeof item !== "object" || item === null) {
-            return item;
-        }
-        else if (Array.isArray(item)) {
-            return new ArrayOMeta({
-                target: item,
-                ownKey: key,
-                parent: parent,
-                visited,
-            }).proxy;
-        }
-        else if (item instanceof Date) {
-            return item;
-        }
-        else {
-            return new ObjectOMeta({
-                target: item,
-                ownKey: key,
-                parent: parent,
-                visited,
-            }).proxy;
-        }
-    }
+        },
+    };
+
+    /***
+     * Proxied Array methods
+     */
     function proxiedPop() {
         const oMeta = this[oMetaKey], target = oMeta.target, poppedIndex = target.length - 1;
         let popResult = target.pop();
@@ -166,20 +164,20 @@
         const changes = [
             new Change(DELETE, [poppedIndex], undefined, popResult, this, copy(this)),
         ];
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return popResult;
     }
     function proxiedPush() {
         const oMeta = this[oMetaKey], target = oMeta.target, l = arguments.length, pushContent = new Array(l), initialLength = target.length;
         for (let i = 0; i < l; i++) {
-            pushContent[i] = getObservedOf(arguments[i], initialLength + i, oMeta);
+            pushContent[i] = prepare.getObservedOf(arguments[i], initialLength + i, oMeta);
         }
         const pushResult = Reflect.apply(target.push, target, pushContent);
         const changes = [];
         for (let i = initialLength, j = target.length; i < j; i++) {
             changes[i - initialLength] = new Change(INSERT, [i], target[i], undefined, this, copy(this));
         }
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return pushResult;
     }
     function proxiedShift() {
@@ -205,13 +203,13 @@
         const changes = [
             new Change(DELETE, [0], undefined, shiftResult, this, copy(this)),
         ];
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return shiftResult;
     }
     function proxiedUnshift() {
         const oMeta = this[oMetaKey], target = oMeta.target, al = arguments.length, unshiftContent = new Array(al);
         for (let i = 0; i < al; i++) {
-            unshiftContent[i] = getObservedOf(arguments[i], i, oMeta);
+            unshiftContent[i] = prepare.getObservedOf(arguments[i], i, oMeta);
         }
         const unshiftResult = Reflect.apply(target.unshift, target, unshiftContent);
         for (let i = 0, l = target.length, item; i < l; i++) {
@@ -229,7 +227,7 @@
         for (let i = 0; i < l; i++) {
             changes[i] = new Change(INSERT, [i], target[i], undefined, this, copy(this));
         }
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return unshiftResult;
     }
     function proxiedReverse() {
@@ -248,7 +246,7 @@
         const changes = [
             new Change(REVERSE, [], undefined, undefined, this, copy(this)),
         ];
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return this;
     }
     function proxiedSort(comparator) {
@@ -267,7 +265,7 @@
         const changes = [
             new Change(SHUFFLE, [], undefined, undefined, this, copy(this)),
         ];
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return this;
     }
     function proxiedFill(filVal, start, end) {
@@ -289,7 +287,7 @@
             let tmpObserved;
             for (let i = start, item, tmpTarget; i < end; i++) {
                 item = target[i];
-                target[i] = getObservedOf(item, i, oMeta);
+                target[i] = prepare.getObservedOf(item, i, oMeta);
                 if (i in prev) {
                     tmpTarget = prev[i];
                     if (tmpTarget && typeof tmpTarget === "object") {
@@ -304,7 +302,7 @@
                     changes.push(new Change(INSERT, [i], target[i], undefined, this, copy(this)));
                 }
             }
-            callObservers(oMeta, changes);
+            oMeta.callObservers(changes);
         }
         return this;
     }
@@ -331,7 +329,7 @@
                 //	update newly placed observables, if any
                 nItem = target[i];
                 if (nItem && typeof nItem === "object") {
-                    nItem = getObservedOf(nItem, i, oMeta);
+                    nItem = prepare.getObservedOf(nItem, i, oMeta);
                     target[i] = nItem;
                 }
                 //	detach overridden observables, if any
@@ -347,7 +345,7 @@
                 }
                 changes.push(new Change(UPDATE, [i], nItem, oItem, this, copy(this)));
             }
-            callObservers(oMeta, changes);
+            oMeta.callObservers(changes);
         }
         return this;
     }
@@ -355,7 +353,7 @@
         const oMeta = this[oMetaKey], target = oMeta.target, splLen = arguments.length, spliceContent = new Array(splLen), tarLen = target.length;
         //	make newcomers observable
         for (let i = 0; i < splLen; i++) {
-            spliceContent[i] = getObservedOf(arguments[i], i, oMeta);
+            spliceContent[i] = prepare.getObservedOf(arguments[i], i, oMeta);
         }
         //	calculate pointers
         const startIndex = splLen === 0
@@ -398,7 +396,7 @@
         for (; index < inserted; index++) {
             changes.push(new Change(INSERT, [startIndex + index], target[startIndex + index], undefined, this, copy(this)));
         }
-        callObservers(oMeta, changes);
+        oMeta.callObservers(changes);
         return spliceResult;
     }
     const proxiedArrayMethods = {
@@ -412,20 +410,12 @@
         copyWithin: proxiedCopyWithin,
         splice: proxiedSplice,
     };
-    class Change {
-        constructor(type, path, value, oldValue, object, snapshot) {
-            this.type = type;
-            this.path = path;
-            this.value = copy(value);
-            this.oldValue = copy(oldValue);
-            this.object = object;
-            this.snapshot = snapshot;
-        }
-    }
-    class OMetaBase {
+
+    class ObservableMeta {
         constructor(properties, cloningFunction) {
             this.observers = [];
             this.batches = [];
+            this.runningSilentWork = false;
             const { target, parent, ownKey, visited = new Set() } = properties;
             if (parent && ownKey !== undefined) {
                 this.parent = parent;
@@ -450,7 +440,7 @@
         set(target, key, value) {
             let oldValue = target[key];
             if (value !== oldValue) {
-                const newValue = getObservedOf(value, key, this);
+                const newValue = prepare.getObservedOf(value, key, this);
                 target[key] = newValue;
                 if (oldValue && typeof oldValue === "object") {
                     const tmpObserved = oldValue[oMetaKey];
@@ -465,7 +455,7 @@
                     : [
                         new Change(UPDATE, [key], newValue, oldValue, this.proxy, copy(this.proxy)),
                     ];
-                callObservers(this, changes);
+                this.callObservers(changes);
             }
             return true;
         }
@@ -481,78 +471,147 @@
             const changes = [
                 new Change(DELETE, [key], undefined, oldValue, this.proxy, copy(this.proxy)),
             ];
-            callObservers(this, changes);
+            this.callObservers(changes);
             return true;
         }
-    }
-    class ObjectOMeta extends OMetaBase {
-        constructor(properties) {
-            super(properties, prepareObject);
+        QueMicroTask(observableMeta) {
+            let skip = false;
+            if (findGrandParent(this).runningSilentWork)
+                skip = true;
+            queueMicrotask(() => {
+                const batches = observableMeta.batches;
+                observableMeta.batches = [];
+                for (const [listener, changes] of batches) {
+                    try {
+                        if (skip)
+                            break;
+                        listener(changes);
+                    }
+                    catch (e) {
+                        console.error(`Failed to notify listener ${listener} with ${changes}:`, e);
+                    }
+                }
+            });
+        }
+        callObservers(changes) {
+            let currentObservable = this;
+            const l = changes.length;
+            do {
+                let observers = currentObservable.observers;
+                let i = observers.length;
+                while (i--) {
+                    let target = observers[i];
+                    if (changes.length) {
+                        if (currentObservable.batches.length === 0) {
+                            this.QueMicroTask(currentObservable);
+                        }
+                        let rb;
+                        for (const batch of currentObservable.batches) {
+                            if (batch[0] === target) {
+                                rb = batch;
+                                break;
+                            }
+                        }
+                        if (!rb) {
+                            rb = [target, []];
+                            currentObservable.batches.push(rb);
+                        }
+                        Array.prototype.push.apply(rb[1], changes);
+                    }
+                }
+                //	cloning all the changes and notifying in context of parent
+                const parent = currentObservable.parent;
+                if (parent) {
+                    for (let j = 0; j < l; j++) {
+                        const change = changes[j];
+                        changes[j] = new Change(change.type, [currentObservable.ownKey, ...change.path], change.value, change.oldValue, change.object, copy(findGrandParent(currentObservable).proxy));
+                    }
+                    currentObservable = parent;
+                }
+                else {
+                    currentObservable = null;
+                }
+            } while (currentObservable);
         }
     }
-    class ArrayOMeta extends OMetaBase {
+    class ObservableObjectMeta extends ObservableMeta {
         constructor(properties) {
-            super(properties, prepareArray);
+            super(properties, prepare.object);
+        }
+    }
+    class ObservableArrayMeta extends ObservableMeta {
+        constructor(properties) {
+            super(properties, prepare.array);
         }
         get(target, key) {
             return proxiedArrayMethods[key] || target[key];
         }
     }
-    function observable(target) {
-        const o = isObservable(target)
-            ? target
-            : new ArrayOMeta({
-                target: target,
-                ownKey: "",
-                parent: null,
-            }).proxy;
-        function unobserve(observers) {
-            return __awaiter(this, void 0, void 0, function* () {
-                if (!observers)
-                    return yield __unobserve(o);
-                else if (Array.isArray(observers))
-                    return yield __unobserve(o, observers);
-                else
-                    return yield __unobserve(o, [observers]);
-            });
+
+    class Observable {
+        constructor(target) {
+            /**
+             * An array of the all the observers registered to this observable
+             */
+            this.observers = [];
+            this.target = Observable.isObservable(target)
+                ? target
+                : new ObservableArrayMeta({
+                    target: target,
+                    ownKey: "",
+                    parent: null,
+                }).proxy;
+            this.observers = this.target[oMetaKey].observers;
         }
-        function observe(observer) {
-            __observe(o, observer);
+        /**
+         *
+         * Remove an observer from the list of observers
+         * can be given a single observer
+         * an array of observers
+         * or no argument to remove all observers
+         */
+        unobserve(observers) {
+            if (!observers)
+                return this.__unobserve();
+            else if (Array.isArray(observers))
+                return this.__unobserve(observers);
+            else
+                return this.__unobserve([observers]);
         }
-        function silently(work) {
-            return __awaiter(this, void 0, void 0, function* () {
-                const observers = yield __unobserve(o);
-                try {
-                    work(o);
-                }
-                finally {
-                    for (const observer of observers) {
-                        __observe(o, observer);
-                    }
-                }
-            });
+        /**
+         * Register a new observer
+         */
+        observe(observer) {
+            this.__observe(observer);
         }
-        return {
-            observe,
-            unobserve,
-            silently,
-            observable: o,
-        };
-    }
-    function isObservable(input) {
-        return !!(input && input[oMetaKey]);
-    }
-    function __observe(observable, observer) {
-        const observers = observable[oMetaKey].observers;
-        if (!observers.some((o) => o === observer)) {
-            observers.push(observer);
+        /**
+         * Execute a callback silently (without calling the observers)
+         */
+        silently(work) {
+            this.target[oMetaKey].runningSilentWork = true;
+            try {
+                work(this.target);
+            }
+            finally {
+                this.target[oMetaKey].runningSilentWork = false;
+            }
         }
-    }
-    function __unobserve(observable, observers) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (observable instanceof Promise)
-                observable = yield Promise.resolve(observable);
-            const existingObs = observable[oMetaKey].observers;
+        /**
+         * Get a non-observed copy of the observable array
+         * changes to this copy wouldn't be replicated to the observable array
+         * and wouldn't cause observers to be called
+         */
+        get copy() {
+            return copy(this.target);
+        }
+        __observe(observer) {
+            const observers = this.target[oMetaKey].observers;
+            if (!observers.some((o) => o === observer)) {
+                observers.push(observer);
+            }
+        }
+        __unobserve(observers) {
+            const existingObs = this.target[oMetaKey].observers;
             let length = existingObs.length;
             if (!length) {
                 return [];
@@ -569,229 +628,14 @@
                 }
             }
             return spliced;
-        });
-    }
-
-    class IDB {
-        constructor(name) {
-            const request = indexedDB.open(name);
-            request.onupgradeneeded = function (event) {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(name)) {
-                    const objectStore = db.createObjectStore(name);
-                    objectStore.createIndex("idIndex", "_id", { unique: true });
-                }
-                if (!db.objectStoreNames.contains('metadata')) {
-                    db.createObjectStore('metadata');
-                }
-            };
-            const dbp = this.pr(request);
-            this.store = (txMode, callback) => dbp.then((db) => callback(db.transaction(name, txMode, { durability: "relaxed" }).objectStore(name)));
-            this.metadataStore = (txMode, callback) => dbp.then((db) => callback(db.transaction('metadata', txMode, { durability: "relaxed" }).objectStore('metadata')));
         }
         /**
-         * Converts IDB requests/transactions to promises.
+         * when given any input it would return:
+         * true: if it's an observable object (even if deeply nested inside observable array)
+         * false: if not
          */
-        pr(req) {
-            return new Promise((resolve, reject) => {
-                // @ts-ignore - file size hacks
-                req.oncomplete = req.onsuccess = () => resolve(req.result);
-                // @ts-ignore - file size hacks
-                req.onabort = req.onerror = () => reject(req.error);
-            });
-        }
-        /**
-         * Converts cursor iterations to promises.
-         */
-        eachCursor(store, callback) {
-            store.openCursor().onsuccess = function () {
-                if (!this.result)
-                    return;
-                callback(this.result);
-                this.result.continue();
-            };
-            return this.pr(store.transaction);
-        }
-        /**
-         * Get a value by its key.
-         */
-        get(key) {
-            return this.store("readonly", (store) => this.pr(store.get(key)));
-        }
-        /**
-         * Get values for a given set of keys.
-         */
-        getBulk(keys) {
-            return __awaiter(this, void 0, void 0, function* () {
-                return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
-                    return Promise.all(keys.map((x) => this.pr(store.get(x))));
-                }));
-            });
-        }
-        /**
-         * Set a value with a key.
-         */
-        set(key, value) {
-            return this.store("readwrite", (store) => {
-                store.put(value, key);
-                return this.pr(store.transaction);
-            });
-        }
-        /**
-         * Set multiple values at once. This is faster than calling set() multiple times.
-         * It's also atomic – if one of the pairs can't be added, none will be added.
-         */
-        setBulk(entries) {
-            return this.store("readwrite", (store) => {
-                entries.forEach((entry) => store.put(entry[1], entry[0]));
-                return this.pr(store.transaction);
-            });
-        }
-        /**
-         * Delete multiple keys at once.
-         */
-        delBulk(keys) {
-            return this.store("readwrite", (store) => {
-                keys.forEach((key) => store.delete(key));
-                return this.pr(store.transaction);
-            });
-        }
-        /**
-         * Clear all values in the store.
-         */
-        clear() {
-            return this.store("readwrite", (store) => {
-                store.clear();
-                return this.pr(store.transaction);
-            });
-        }
-        /**
-         * Get all keys in the store.
-         */
-        keys() {
-            return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
-                // Fast path for modern browsers
-                if (store.getAllKeys) {
-                    return this.pr(store.getAllKeys());
-                }
-                const items = [];
-                yield this.eachCursor(store, (cursor) => items.push(cursor.key));
-                return items;
-            }));
-        }
-        /**
-         * Get all documents in the store.
-         */
-        values() {
-            return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
-                // Fast path for modern browsers
-                if (store.getAll) {
-                    return this.pr(store.getAll());
-                }
-                const items = [];
-                yield this.eachCursor(store, (cursor) => items.push(cursor.value));
-                return items;
-            }));
-        }
-        /**
-         * Get key by ID
-         */
-        byID(_id) {
-            return __awaiter(this, void 0, void 0, function* () {
-                return this.store("readonly", (store) => {
-                    return this.pr(store.index("idIndex").getKey(_id));
-                });
-            });
-        }
-        /**
-         * Get length of the DB.
-         */
-        length() {
-            return __awaiter(this, void 0, void 0, function* () {
-                return (yield this.keys()).length;
-            });
-        }
-        /**
-         * Set metadata with a key.
-         */
-        setMetadata(key, value) {
-            return this.metadataStore("readwrite", (store) => {
-                store.put(value, key);
-                return this.pr(store.transaction);
-            });
-        }
-        /**
-         * Get metadata by its key.
-         */
-        getMetadata(key) {
-            return this.metadataStore("readonly", (store) => this.pr(store.get(key)));
-        }
-        clearMetadata() {
-            return this.metadataStore("readwrite", (store) => {
-                store.clear();
-                return this.pr(store.transaction);
-            });
-        }
-    }
-
-    class SyncService {
-        constructor(baseUrl, token, table) {
-            this.baseUrl = baseUrl;
-            this.token = token;
-            this.table = table;
-        }
-        fetchData() {
-            return __awaiter(this, arguments, void 0, function* (version = 0) {
-                let page = 0;
-                let nextPage = true;
-                let fetchedVersion = 0;
-                let result = [];
-                while (nextPage) {
-                    const url = `${this.baseUrl}/${this.table}/${version}/${page}`;
-                    const response = yield fetch(url, {
-                        method: "GET",
-                        headers: {
-                            Authorization: `Bearer ${this.token}`,
-                        },
-                    });
-                    const res = yield response.json();
-                    const output = JSON.parse(res.output);
-                    nextPage = output.rows.length > 0 && version !== 0;
-                    fetchedVersion = output.version;
-                    result = result.concat(output.rows);
-                    page = page + 1;
-                }
-                return { version: fetchedVersion, rows: result };
-            });
-        }
-        latestVersion() {
-            return __awaiter(this, void 0, void 0, function* () {
-                const url = `${this.baseUrl}/${this.table}/0/Infinity`;
-                const response = yield fetch(url, {
-                    method: "GET",
-                    headers: {
-                        Authorization: `Bearer ${this.token}`,
-                    },
-                });
-                const res = yield response.json();
-                if (res.success)
-                    return Number(JSON.parse(res.output).version);
-                else
-                    return 0;
-            });
-        }
-        sendUpdates(data) {
-            return __awaiter(this, void 0, void 0, function* () {
-                const url = `${this.baseUrl}/${this.table}`;
-                const response = yield fetch(url, {
-                    method: "PUT",
-                    headers: {
-                        Authorization: `Bearer ${this.token}`,
-                    },
-                    body: JSON.stringify(data),
-                });
-                return Number((yield response.json()).output);
-            });
+        static isObservable(input) {
+            return !!(input && input[oMetaKey]);
         }
     }
 
@@ -956,18 +800,29 @@
     }
 
     class Store {
-        constructor({ name, token, persist = true, endpoint, debounceRate, model, encode, decode, }) {
+        constructor({ debounceRate, model, encode, decode, onSyncStart, onSyncEnd, localPersistence, remotePersistence, } = {}) {
             this.isOnline = true;
             this.deferredPresent = false;
-            this.$$observableObject = observable([]);
+            this.onSyncStart = () => { };
+            this.onSyncEnd = () => { };
+            this.$$observableObject = new Observable([]);
             this.$$changes = [];
-            this.$$syncService = null;
+            this.$$loaded = false;
             this.$$debounceRate = 100;
             this.$$lastProcessChanges = 0;
+            this.$$model = Document;
             this.$$encode = (x) => x;
             this.$$decode = (x) => x;
+            this.copy = this.$$observableObject.copy;
+            this.new = this.$$model.new;
             this.sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
             this.$$model = model || Document;
+            if (onSyncStart) {
+                this.onSyncStart = onSyncStart;
+            }
+            if (onSyncEnd) {
+                this.onSyncEnd = onSyncEnd;
+            }
             if (encode) {
                 this.$$encode = encode;
             }
@@ -977,16 +832,21 @@
             if (typeof debounceRate === "number") {
                 this.$$debounceRate = debounceRate;
             }
-            if (name && persist) {
-                this.$$idb = new IDB(name);
+            if (localPersistence) {
+                this.$$localPersistence = localPersistence;
                 this.$$loadFromLocal();
                 this.$$setupObservers();
             }
-            if (token && endpoint && name && persist) {
-                this.$$token = token;
-                this.$$syncService = new SyncService(endpoint, this.$$token, name);
+            if (remotePersistence) {
+                this.$$remotePersistence = remotePersistence;
             }
         }
+        /**
+         * Serializes an item of type T into an encoded JSON string.
+         * Date objects are converted to a custom format before encoding.
+         * @param item An instance of type T which extends Document.
+         * @returns An encoded JSON string representing the item.
+         */
         $$serialize(item) {
             const stripped = item._stripDefaults ? item._stripDefaults() : item;
             const str = JSON.stringify(stripped, function (key, value) {
@@ -1000,12 +860,17 @@
             });
             return this.$$encode(str);
         }
+        /**
+         * Decodes a serialized string, parses it into a JavaScript object, and converts custom date formats back into Date objects.
+         * @param line A string representing the serialized data.
+         * @returns A new instance of the model with the deserialized data.
+         */
         $$deserialize(line) {
             line = this.$$decode(line);
-            const item = JSON.parse(line, function (key, val) {
+            const item = JSON.parse(line, (key, val) => {
                 if (key === "$$date")
                     return new Date(val);
-                let t = typeof val;
+                const t = typeof val;
                 if (t === "string" || t === "number" || t === "boolean" || val === null)
                     return val;
                 if (val && val.$$date)
@@ -1014,23 +879,32 @@
             });
             return this.$$model.new(item);
         }
+        /**
+         * Loads data from an IndexedDB instance, deserializes it, and updates the observable array silently without triggering observers.
+         */
         $$loadFromLocal() {
             return __awaiter(this, void 0, void 0, function* () {
-                if (!this.$$idb)
+                // Check if IndexedDB instance is available
+                if (!this.$$localPersistence)
                     return;
-                const deserialized = (yield this.$$idb.values()).map((x) => this.$$deserialize(x));
+                // Retrieve values from IndexedDB and deserialize them
+                const deserialized = yield Promise.all((yield this.$$localPersistence.getAll()).map((x) => this.$$deserialize(x)));
+                // Update the observable array silently with deserialized data
                 this.$$observableObject.silently((o) => {
                     o.splice(0, o.length, ...deserialized);
+                    this.$$loaded = true;
                 });
             });
         }
         $$processChanges() {
             return __awaiter(this, void 0, void 0, function* () {
-                if (!this.$$idb)
+                if (!this.$$localPersistence)
                     return;
+                if (this.$$changes.length === 0)
+                    return;
+                this.onSyncStart();
                 this.$$lastProcessChanges = Date.now();
-                const toWriteLocally = [];
-                const toSendRemotely = {};
+                const toWrite = [];
                 const toDeffer = [];
                 const changesToProcess = [...this.$$changes]; // Create a copy of changes to process
                 this.$$changes = []; // Clear the original changes array
@@ -1038,19 +912,20 @@
                     const change = changesToProcess[index];
                     const item = change.snapshot[change.path[0]];
                     const serializedLine = this.$$serialize(item);
-                    toWriteLocally.push([item.id, serializedLine]);
-                    toSendRemotely[item.id] = serializedLine;
+                    toWrite.push([item.id, serializedLine]);
                     toDeffer.push({
                         ts: Date.now(),
                         data: serializedLine,
                     });
                 }
-                yield this.$$idb.setBulk(toWriteLocally);
-                const deferred = (yield this.$$idb.getMetadata("deferred")) || "[]";
-                let deferredArray = JSON.parse(deferred);
-                if (this.isOnline && this.$$syncService && deferredArray.length === 0) {
+                yield this.$$localPersistence.put(toWrite);
+                let deferredArray = yield this.$$localPersistence.getDeferred();
+                if (this.isOnline &&
+                    this.$$remotePersistence &&
+                    deferredArray.length === 0) {
                     try {
-                        yield this.$$syncService.sendUpdates(toSendRemotely);
+                        yield this.$$remotePersistence.put(toWrite);
+                        this.onSyncEnd();
                         return;
                     }
                     catch (e) {
@@ -1064,9 +939,9 @@
                  * 2. There's an error during sending updates to the remote server
                  * 3. We're offline
                  */
-                deferredArray = deferredArray.concat(...toDeffer);
-                yield this.$$idb.setMetadata("deferred", JSON.stringify(deferredArray));
+                yield this.$$localPersistence.putDeferred(deferredArray.concat(...toDeffer));
                 this.deferredPresent = true;
+                this.onSyncEnd();
             });
         }
         $$setupObservers() {
@@ -1084,13 +959,6 @@
                     this.$$processChanges();
                 }, nextRun > 0 ? nextRun : 0);
             }));
-        }
-        $$localVersion() {
-            return __awaiter(this, void 0, void 0, function* () {
-                if (!this.$$idb)
-                    return 0;
-                return Number((yield this.$$idb.getMetadata("version")) || 0);
-            });
         }
         /**
          *
@@ -1126,14 +994,14 @@
          */
         $$syncTry() {
             return __awaiter(this, void 0, void 0, function* () {
-                if (!this.$$idb) {
+                if (!this.$$localPersistence) {
                     return {
-                        exception: "IDB not available",
+                        exception: "Local persistence not available",
                     };
                 }
-                if (!this.$$syncService) {
+                if (!this.$$remotePersistence) {
                     return {
-                        exception: "Sync service not available",
+                        exception: "Remote persistence not available",
                     };
                 }
                 if (!this.isOnline) {
@@ -1142,25 +1010,27 @@
                     };
                 }
                 try {
-                    const localVersion = yield this.$$localVersion();
-                    const remoteVersion = yield this.$$syncService.latestVersion();
-                    const deferred = (yield this.$$idb.getMetadata("deferred")) || "[]";
-                    let deferredArray = JSON.parse(deferred);
+                    const localVersion = yield this.$$localPersistence.getVersion();
+                    const remoteVersion = yield this.$$remotePersistence.getVersion();
+                    let deferredArray = yield this.$$localPersistence.getDeferred();
                     if (localVersion === remoteVersion && deferredArray.length === 0) {
                         return {
                             exception: "Nothing to sync",
                         };
                     }
                     // fetch updates since our local version
-                    const remoteUpdates = yield this.$$syncService.fetchData(localVersion);
+                    const remoteUpdates = yield this.$$remotePersistence.getSince(localVersion);
                     // check for conflicts
                     deferredArray = deferredArray.filter((x) => {
+                        var _a;
                         let item = this.$$deserialize(x.data);
                         const conflict = remoteUpdates.rows.findIndex((y) => y.id === item.id);
+                        // take row-specific version if available, otherwise rely on latest version
+                        const comparison = Number(((_a = remoteUpdates.rows[conflict]) === null || _a === void 0 ? void 0 : _a.ts) || remoteVersion);
                         if (conflict === -1) {
                             return true;
                         }
-                        else if (x.ts > remoteVersion) {
+                        else if (x.ts > comparison) {
                             // there's a conflict, but the local change is newer
                             remoteUpdates.rows.splice(conflict, 1);
                             return true;
@@ -1172,22 +1042,22 @@
                     });
                     // now we have local and remote to update
                     // we should start with remote
-                    for (const remote of remoteUpdates.rows) {
-                        yield this.$$idb.set(remote.id, remote.data);
-                    }
+                    yield this.$$localPersistence.put(remoteUpdates.rows.map((row) => [row.id, row.data]));
                     // then local
-                    const updatedRows = {};
+                    const updatedRows = new Map();
                     for (const local of deferredArray) {
                         let item = this.$$deserialize(local.data);
-                        updatedRows[item.id] = local.data;
+                        updatedRows.set(item.id, local.data);
                         // latest deferred write wins since it would overwrite the previous one
                     }
-                    yield this.$$syncService.sendUpdates(updatedRows);
+                    yield this.$$remotePersistence.put([...updatedRows.keys()].map((x) => [x, updatedRows.get(x)]));
                     // reset deferred
-                    yield this.$$idb.setMetadata("deferred", "[]");
+                    yield this.$$localPersistence.putDeferred([]);
                     this.deferredPresent = false;
-                    // set local version
-                    yield this.$$idb.setMetadata("version", remoteUpdates.version.toString());
+                    // set local version to the version given by the current request
+                    // this might be outdated as soon as this functions ends
+                    // that's why this function will run on a while loop (below)
+                    yield this.$$localPersistence.putVersion(remoteUpdates.version);
                     // but if we had deferred updates then the remoteUpdates.version is outdated
                     // so we need to fetch the latest version again
                     // however, we should not do this in the same run since there might be updates
@@ -1212,15 +1082,22 @@
         }
         $$sync() {
             return __awaiter(this, void 0, void 0, function* () {
+                this.onSyncStart();
                 let tries = [];
-                let exceptionOccurred = false;
-                while (!exceptionOccurred) {
-                    const result = yield this.$$syncTry();
-                    if (result.exception) {
-                        exceptionOccurred = true;
+                try {
+                    let exceptionOccurred = false;
+                    while (!exceptionOccurred) {
+                        const result = yield this.$$syncTry();
+                        if (result.exception) {
+                            exceptionOccurred = true;
+                        }
+                        tries.push(result);
                     }
-                    tries.push(result);
                 }
+                catch (e) {
+                    console.error(e);
+                }
+                this.onSyncEnd();
                 return tries;
             });
         }
@@ -1228,74 +1105,295 @@
          * Public methods, to be used by the application
          */
         get list() {
-            return this.$$observableObject.observable.filter((x) => !x.$$deleted);
+            return this.$$observableObject.target.filter((x) => !x.$$deleted);
         }
         getByID(id) {
-            return this.$$observableObject.observable.find((x) => x.id === id);
+            return this.$$observableObject.target.find((x) => x.id === id);
         }
         add(item) {
-            if (this.$$observableObject.observable.find((x) => x.id === item.id)) {
+            if (this.$$observableObject.target.find((x) => x.id === item.id)) {
                 throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
             }
-            this.$$observableObject.observable.push(item);
+            this.$$observableObject.target.push(item);
         }
         delete(item) {
-            const index = this.$$observableObject.observable.findIndex((x) => x.id === item.id);
+            const index = this.$$observableObject.target.findIndex((x) => x.id === item.id);
             if (index === -1) {
                 throw new Error("Item not found.");
             }
             this.deleteByIndex(index);
         }
         deleteByIndex(index) {
-            if (!this.$$observableObject.observable[index]) {
+            if (!this.$$observableObject.target[index]) {
                 throw new Error("Item not found.");
             }
-            this.$$observableObject.observable[index].$$deleted = true;
+            this.$$observableObject.target[index].$$deleted = true;
         }
         deleteByID(id) {
-            const index = this.$$observableObject.observable.findIndex((x) => x.id === id);
+            const index = this.$$observableObject.target.findIndex((x) => x.id === id);
             if (index === -1) {
                 throw new Error("Item not found.");
             }
             this.deleteByIndex(index);
         }
         updateByIndex(index, item) {
-            if (!this.$$observableObject.observable[index]) {
+            if (!this.$$observableObject.target[index]) {
                 throw new Error("Item not found.");
             }
-            if (this.$$observableObject.observable[index].id !== item.id) {
+            if (this.$$observableObject.target[index].id !== item.id) {
                 throw new Error("ID mismatch.");
             }
-            this.$$observableObject.observable[index] = item;
+            this.$$observableObject.target[index] = item;
         }
         isUpdated() {
             return __awaiter(this, void 0, void 0, function* () {
-                return this.$$syncService ? ((yield this.$$syncService.latestVersion()) === (yield this.$$localVersion())) : true;
+                if (this.$$localPersistence && this.$$remotePersistence) {
+                    return ((yield this.$$localPersistence.getVersion()) ===
+                        (yield this.$$remotePersistence.getVersion()));
+                }
+                else
+                    return false;
+            });
+        }
+        get loaded() {
+            return new Promise((resolve) => {
+                let i = setInterval(() => {
+                    if (this.$$loaded) {
+                        clearInterval(i);
+                        resolve();
+                    }
+                }, 100);
             });
         }
     }
 
+    /**
+     * Enhances a React component to automatically re-render when the observed store changes.
+     * @param store - An instance of Store that extends Document.
+     * @returns A higher-order function that takes a React component as an argument.
+     */
     function observe(store) {
         return function (component) {
-            let oCDM = component.prototype.componentDidMount || (() => { });
+            const originalComponentDidMount = component.prototype.componentDidMount || (() => { });
             component.prototype.componentDidMount = function () {
-                let unObservers = [];
+                const unObservers = [];
                 this.setState({});
                 const observer = () => this.setState({});
-                store.$$observableObject.observe(observer);
-                unObservers.push(() => store.$$observableObject.unobserve(observer));
-                const oCWU = this.componentWillUnmount || (() => { });
+                if (Array.isArray(store)) {
+                    store.forEach((singleStore) => {
+                        // @ts-ignore
+                        singleStore.$$observableObject.observe(observer);
+                        unObservers.push(() => 
+                        // @ts-ignore
+                        singleStore.$$observableObject.unobserve(observer));
+                    });
+                }
+                else {
+                    // @ts-ignore
+                    store.$$observableObject.observe(observer);
+                    // @ts-ignore
+                    store.$$observableObject.unobserve(observer);
+                }
+                const originalComponentWillUnmount = this.componentWillUnmount || (() => { });
                 this.componentWillUnmount = () => {
-                    unObservers.forEach((u) => u());
-                    oCWU.call(this);
+                    unObservers.forEach((unObserver) => unObserver());
+                    originalComponentWillUnmount.call(this);
                 };
-                oCDM.call(this);
+                originalComponentDidMount.call(this);
             };
             return component;
         };
     }
 
+    class IDB {
+        constructor({ name }) {
+            const request = indexedDB.open(name);
+            request.onupgradeneeded = function (event) {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(name)) {
+                    const objectStore = db.createObjectStore(name);
+                    objectStore.createIndex("idIndex", "_id", { unique: true });
+                }
+                if (!db.objectStoreNames.contains("metadata")) {
+                    db.createObjectStore("metadata");
+                }
+            };
+            const dbp = this.pr(request);
+            this.store = (txMode, callback) => dbp.then((db) => callback(db
+                .transaction(name, txMode, { durability: "relaxed" })
+                .objectStore(name)));
+            this.metadataStore = (txMode, callback) => dbp.then((db) => callback(db
+                .transaction("metadata", txMode, { durability: "relaxed" })
+                .objectStore("metadata")));
+        }
+        /**
+         * Converts IDB requests/transactions to promises.
+         */
+        pr(req) {
+            return new Promise((resolve, reject) => {
+                // @ts-ignore - file size hacks
+                req.oncomplete = req.onsuccess = () => resolve(req.result);
+                // @ts-ignore - file size hacks
+                req.onabort = req.onerror = () => reject(req.error);
+            });
+        }
+        /**
+         * Converts cursor iterations to promises.
+         */
+        eachCursor(store, callback) {
+            store.openCursor().onsuccess = function () {
+                if (!this.result)
+                    return;
+                callback(this.result);
+                this.result.continue();
+            };
+            return this.pr(store.transaction);
+        }
+        /**
+         * Set multiple values at once. This is faster than calling set() multiple times.
+         * It's also atomic – if one of the pairs can't be added, none will be added.
+         */
+        put(entries) {
+            return this.store("readwrite", (store) => {
+                entries.forEach((entry) => store.put(entry[1], entry[0]));
+                return this.pr(store.transaction);
+            });
+        }
+        /**
+         * Get all documents in the store.
+         */
+        getAll() {
+            return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
+                let rows = [];
+                if (store.getAll) {
+                    rows = yield this.pr(store.getAll());
+                }
+                else {
+                    yield this.eachCursor(store, (cursor) => rows.push(cursor.value));
+                }
+                return rows;
+            }));
+        }
+        getVersion() {
+            return __awaiter(this, void 0, void 0, function* () {
+                return Number((yield this.getMetadata("version")) || 0);
+            });
+        }
+        putVersion(version) {
+            return __awaiter(this, void 0, void 0, function* () {
+                yield this.setMetadata("version", JSON.stringify(version));
+            });
+        }
+        getDeferred() {
+            return __awaiter(this, void 0, void 0, function* () {
+                return JSON.parse((yield this.getMetadata("deferred")) || "[]");
+            });
+        }
+        putDeferred(arr) {
+            return __awaiter(this, void 0, void 0, function* () {
+                yield this.setMetadata("deferred", JSON.stringify(arr));
+            });
+        }
+        /**
+         * Set metadata with a key.
+         */
+        setMetadata(key, value) {
+            return this.metadataStore("readwrite", (store) => {
+                store.put(value, key);
+                return this.pr(store.transaction);
+            });
+        }
+        /**
+         * Get metadata by its key.
+         */
+        getMetadata(key) {
+            return this.metadataStore("readonly", (store) => this.pr(store.get(key)));
+        }
+        /**
+         * Clear all values in the store.
+         */
+        clear() {
+            return this.store("readwrite", (store) => {
+                store.clear();
+                return this.pr(store.transaction);
+            });
+        }
+        clearMetadata() {
+            return this.metadataStore("readwrite", (store) => {
+                store.clear();
+                return this.pr(store.transaction);
+            });
+        }
+    }
+
+    class CloudFlareApexoDB {
+        constructor({ endpoint, token, name, }) {
+            this.baseUrl = endpoint;
+            this.token = token;
+            this.table = name;
+        }
+        getSince() {
+            return __awaiter(this, arguments, void 0, function* (version = 0) {
+                let page = 0;
+                let nextPage = true;
+                let fetchedVersion = 0;
+                let result = [];
+                while (nextPage) {
+                    const url = `${this.baseUrl}/${this.table}/${version}/${page}`;
+                    const response = yield fetch(url, {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${this.token}`,
+                        },
+                    });
+                    const res = yield response.json();
+                    const output = JSON.parse(res.output);
+                    nextPage = output.rows.length > 0 && version !== 0;
+                    fetchedVersion = output.version;
+                    result = result.concat(output.rows);
+                    page = page + 1;
+                }
+                return { version: fetchedVersion, rows: result };
+            });
+        }
+        getVersion() {
+            return __awaiter(this, void 0, void 0, function* () {
+                const url = `${this.baseUrl}/${this.table}/0/Infinity`;
+                const response = yield fetch(url, {
+                    method: "GET",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                });
+                const res = yield response.json();
+                if (res.success)
+                    return Number(JSON.parse(res.output).version);
+                else
+                    return 0;
+            });
+        }
+        put(data) {
+            return __awaiter(this, void 0, void 0, function* () {
+                const reqBody = data.reduce((record, item) => {
+                    record[item[0]] = item[1];
+                    return record;
+                }, {});
+                const url = `${this.baseUrl}/${this.table}`;
+                yield fetch(url, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                    body: JSON.stringify(reqBody),
+                });
+                return;
+            });
+        }
+    }
+
+    exports.CloudFlareApexoDB = CloudFlareApexoDB;
     exports.Document = Document;
+    exports.IDB = IDB;
     exports.Store = Store;
     exports.SubDocument = SubDocument;
     exports.mapSubModel = mapSubModel;

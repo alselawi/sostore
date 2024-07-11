@@ -1,6 +1,6 @@
 {
 	"name": "apical-store",
-	"version": "0.0.6",
+	"version": "0.0.73",
 	"description": "Mobx-Syncable-IndexedDB",
 	"main": "dist/bundle.js",
 	"module": "dist/main.js",

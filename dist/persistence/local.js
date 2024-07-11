@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 export class IDB {
-    constructor(name) {
+    constructor({ name }) {
         const request = indexedDB.open(name);
         request.onupgradeneeded = function (event) {
             const db = event.target.result;
@@ -16,13 +16,17 @@ export class IDB {
                 const objectStore = db.createObjectStore(name);
                 objectStore.createIndex("idIndex", "_id", { unique: true });
             }
-            if (!db.objectStoreNames.contains('metadata')) {
-                db.createObjectStore('metadata');
+            if (!db.objectStoreNames.contains("metadata")) {
+                db.createObjectStore("metadata");
             }
         };
         const dbp = this.pr(request);
-        this.store = (txMode, callback) => dbp.then((db) => callback(db.transaction(name, txMode, { durability: "relaxed" }).objectStore(name)));
-        this.metadataStore = (txMode, callback) => dbp.then((db) => callback(db.transaction('metadata', txMode, { durability: "relaxed" }).objectStore('metadata')));
+        this.store = (txMode, callback) => dbp.then((db) => callback(db
+            .transaction(name, txMode, { durability: "relaxed" })
+            .objectStore(name)));
+        this.metadataStore = (txMode, callback) => dbp.then((db) => callback(db
+            .transaction("metadata", txMode, { durability: "relaxed" })
+            .objectStore("metadata")));
     }
     /**
      * Converts IDB requests/transactions to promises.
@@ -48,102 +52,48 @@ export class IDB {
         return this.pr(store.transaction);
     }
     /**
-     * Get a value by its key.
-     */
-    get(key) {
-        return this.store("readonly", (store) => this.pr(store.get(key)));
-    }
-    /**
-     * Get values for a given set of keys.
-     */
-    getBulk(keys) {
-        return __awaiter(this, void 0, void 0, function* () {
-            return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
-                return Promise.all(keys.map((x) => this.pr(store.get(x))));
-            }));
-        });
-    }
-    /**
-     * Set a value with a key.
-     */
-    set(key, value) {
-        return this.store("readwrite", (store) => {
-            store.put(value, key);
-            return this.pr(store.transaction);
-        });
-    }
-    /**
      * Set multiple values at once. This is faster than calling set() multiple times.
      * It's also atomic – if one of the pairs can't be added, none will be added.
      */
-    setBulk(entries) {
+    put(entries) {
         return this.store("readwrite", (store) => {
             entries.forEach((entry) => store.put(entry[1], entry[0]));
             return this.pr(store.transaction);
         });
     }
     /**
-     * Delete multiple keys at once.
-     */
-    delBulk(keys) {
-        return this.store("readwrite", (store) => {
-            keys.forEach((key) => store.delete(key));
-            return this.pr(store.transaction);
-        });
-    }
-    /**
-     * Clear all values in the store.
-     */
-    clear() {
-        return this.store("readwrite", (store) => {
-            store.clear();
-            return this.pr(store.transaction);
-        });
-    }
-    /**
-     * Get all keys in the store.
-     */
-    keys() {
-        return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
-            // Fast path for modern browsers
-            if (store.getAllKeys) {
-                return this.pr(store.getAllKeys());
-            }
-            const items = [];
-            yield this.eachCursor(store, (cursor) => items.push(cursor.key));
-            return items;
-        }));
-    }
-    /**
      * Get all documents in the store.
      */
-    values() {
+    getAll() {
         return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
-            // Fast path for modern browsers
+            let rows = [];
             if (store.getAll) {
-                return this.pr(store.getAll());
+                rows = yield this.pr(store.getAll());
             }
-            const items = [];
-            yield this.eachCursor(store, (cursor) => items.push(cursor.value));
-            return items;
+            else {
+                yield this.eachCursor(store, (cursor) => rows.push(cursor.value));
+            }
+            return rows;
         }));
     }
-    /**
-     * Get key by ID
-     */
-    byID(_id) {
+    getVersion() {
         return __awaiter(this, void 0, void 0, function* () {
-            return this.store("readonly", (store) => {
-                return this.pr(store.index("idIndex").getKey(_id));
-            });
+            return Number((yield this.getMetadata("version")) || 0);
         });
     }
-    /**
-     * Get length of the DB.
-     */
-    length() {
+    putVersion(version) {
         return __awaiter(this, void 0, void 0, function* () {
-            return (yield this.keys()).length;
+            yield this.setMetadata("version", JSON.stringify(version));
+        });
+    }
+    getDeferred() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return JSON.parse((yield this.getMetadata("deferred")) || "[]");
+        });
+    }
+    putDeferred(arr) {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.setMetadata("deferred", JSON.stringify(arr));
         });
     }
     /**
@@ -160,6 +110,15 @@ export class IDB {
      */
     getMetadata(key) {
         return this.metadataStore("readonly", (store) => this.pr(store.get(key)));
+    }
+    /**
+     * Clear all values in the store.
+     */
+    clear() {
+        return this.store("readwrite", (store) => {
+            store.clear();
+            return this.pr(store.transaction);
+        });
     }
     clearMetadata() {
         return this.metadataStore("readwrite", (store) => {

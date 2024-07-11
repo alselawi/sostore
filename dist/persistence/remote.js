@@ -7,13 +7,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-export class SyncService {
-    constructor(baseUrl, token, table) {
-        this.baseUrl = baseUrl;
+export class CloudFlareApexoDB {
+    constructor({ endpoint, token, name, }) {
+        this.baseUrl = endpoint;
         this.token = token;
-        this.table = table;
+        this.table = name;
     }
-    fetchData() {
+    getSince() {
         return __awaiter(this, arguments, void 0, function* (version = 0) {
             let page = 0;
             let nextPage = true;
@@ -37,7 +37,7 @@ export class SyncService {
             return { version: fetchedVersion, rows: result };
         });
     }
-    latestVersion() {
+    getVersion() {
         return __awaiter(this, void 0, void 0, function* () {
             const url = `${this.baseUrl}/${this.table}/0/Infinity`;
             const response = yield fetch(url, {
@@ -53,17 +53,21 @@ export class SyncService {
                 return 0;
         });
     }
-    sendUpdates(data) {
+    put(data) {
         return __awaiter(this, void 0, void 0, function* () {
+            const reqBody = data.reduce((record, item) => {
+                record[item[0]] = item[1];
+                return record;
+            }, {});
             const url = `${this.baseUrl}/${this.table}`;
             const response = yield fetch(url, {
                 method: "PUT",
                 headers: {
                     Authorization: `Bearer ${this.token}`,
                 },
-                body: JSON.stringify(data),
+                body: JSON.stringify(reqBody),
             });
-            return Number((yield response.json()).output);
+            return;
         });
     }
 }
