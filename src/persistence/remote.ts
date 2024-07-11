@@ -1,15 +1,33 @@
-export class SyncService {
+import { Persistence } from "./type";
+
+export interface RemotePersistence extends Persistence {
+    getSince(version?: number): Promise<{version: number, rows: {
+        id: string,
+        data: string,
+        ts?: string
+    }[]}>
+}
+
+export class CloudFlareApexoDB implements Persistence {
 	private baseUrl: string;
 	private token: string;
 	private table: string;
 
-	constructor(baseUrl: string, token: string, table: string) {
-		this.baseUrl = baseUrl;
+	constructor({
+		endpoint,
+		token,
+		name,
+	}: {
+		endpoint: string;
+		token: string;
+		name: string;
+	}) {
+		this.baseUrl = endpoint;
 		this.token = token;
-		this.table = table;
+		this.table = name;
 	}
 
-	async fetchData(version: number = 0) {
+	async getSince(version: number = 0) {
 		let page = 0;
 		let nextPage = true;
 		let fetchedVersion = 0;
@@ -25,7 +43,7 @@ export class SyncService {
 			const res = await response.json();
 			const output = JSON.parse(res.output) as {
 				version: number;
-				rows: { id: string; data: string }[];
+				rows: { id: string; data: string; ts?:string }[];
 			};
 			nextPage = output.rows.length > 0 && version !== 0;
 			fetchedVersion = output.version;
@@ -35,7 +53,7 @@ export class SyncService {
 		return { version: fetchedVersion, rows: result };
 	}
 
-	async latestVersion(): Promise<number> {
+	async getVersion(): Promise<number> {
 		const url = `${this.baseUrl}/${this.table}/0/Infinity`;
 		const response = await fetch(url, {
 			method: "GET",
@@ -48,15 +66,19 @@ export class SyncService {
 		else return 0;
 	}
 
-	async sendUpdates(data: { [key: string]: string }): Promise<number> {
+	async put(data: [string, string][]): Promise<void> {
+		const reqBody = data.reduce((record, item) => {
+			record[item[0]] = item[1];
+			return record;
+		}, {} as Record<string, string>);
 		const url = `${this.baseUrl}/${this.table}`;
 		const response = await fetch(url, {
 			method: "PUT",
 			headers: {
 				Authorization: `Bearer ${this.token}`,
 			},
-			body: JSON.stringify(data),
+			body: JSON.stringify(reqBody),
 		});
-		return Number((await response.json()).output);
+		return;
 	}
 }

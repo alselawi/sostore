@@ -1,89 +1,91 @@
-import { IDB } from '../src/idb';
-import { describe, test, expect } from 'vitest';
+import { deferredArray, IDB  } from '../src/persistence/local';
 import "fake-indexeddb/auto";
 
 
-describe('IDB', () => {
-    test('get', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        const result = await idb.get('key1');
-        expect(result).toBe('value1');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+describe('IDB Class', () => {
+  const dbName = 'testDB';
+  let idb: IDB;
+
+  beforeEach(async () => {
+    idb = new IDB({ name: dbName });
+  });
+
+  afterEach(async () => {
+    await idb.clear();
+    await idb.clearMetadata()
+  });
+
+  it('should initialize the database and object stores', async () => {
+    // Simulate the request to ensure the database and object stores are created
+    const request = indexedDB.open(dbName);
+    const result = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
     });
 
-    test('getBulk', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        await idb.set('key2', 'value2');
-        const result = await idb.getBulk(['key1', 'key2']);
-        expect(result).toEqual(['value1', 'value2']);
-    });
+    expect(result.objectStoreNames.contains(dbName)).toBe(true);
+    expect(result.objectStoreNames.contains('metadata')).toBe(true);
+  });
 
-    test('set', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        const result = await idb.get('key1');
-        expect(result).toBe('value1');
-    });
+  it('should store and retrieve multiple entries', async () => {
+    const entries = [['key1', 'value1'], ['key2', 'value2']] as [string, string][];
+    await idb.put(entries);
 
-    test('setBulk', async () => {
-        const idb = new IDB('testDB');
-        await idb.setBulk([['key1', 'value1'], ['key2', 'value2']]);
-        const result1 = await idb.get('key1');
-        const result2 = await idb.get('key2');
-        expect(result1).toBe('value1');
-        expect(result2).toBe('value2');
-    });
+    const allEntries = await idb.getAll();
+    expect(allEntries).toContain('value1');
+    expect(allEntries).toContain('value2');
+  });
 
-    test('delBulk', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        await idb.set('key2', 'value2');
-        await idb.delBulk(['key1', 'key2']);
-        const result1 = await idb.get('key1');
-        const result2 = await idb.get('key2');
-        expect(result1).toBeUndefined();
-        expect(result2).toBeUndefined();
-    });
+  it('should store and retrieve metadata', async () => {
+    await idb.setMetadata('testKey', 'testValue');
+    const value = await idb.getMetadata('testKey');
 
-    test('clear', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        await idb.set('key2', 'value2');
-        await idb.clear();
-        const result1 = await idb.get('key1');
-        const result2 = await idb.get('key2');
-        expect(result1).toBeUndefined();
-        expect(result2).toBeUndefined();
-    });
+    expect(value).toBe('testValue');
+  });
 
-    test('keys', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        await idb.set('key2', 'value2');
-        const result = await idb.keys();
-        expect(result).toEqual(['key1', 'key2']);
-    });
+  it('should store and retrieve version', async () => {
+    await idb.putVersion(1);
+    const version = await idb.getVersion();
 
-    test('values', async () => {
-        const idb = new IDB('testDB');
-        await idb.set('key1', 'value1');
-        await idb.set('key2', 'value2');
-        const result = await idb.values();
-        expect(result).toEqual(['value1', 'value2']);
-    });
+    expect(version).toBe(1);
+  });
 
-    test('setMetadata', async () => {
-        const idb = new IDB('testDB');
-        await idb.setMetadata('metadata1', 'value1');
-        const result = await idb.getMetadata('metadata1');
-        expect(result).toBe('value1');
-    });
+  it('should store and retrieve deferred array', async () => {
+    const deferredArray: deferredArray = [{ data: "data", ts: 12 }, {data: "data2", ts: 24}];
+    await idb.putDeferred(deferredArray);
+    const retrievedArray = await idb.getDeferred();
 
-    test('getMetadata', async () => {
-        const idb = new IDB('testDB');
-        await idb.setMetadata('metadata1', 'value1');
-        const result = await idb.getMetadata('metadata1');
-        expect(result).toBe('value1');
-    });
+    expect(retrievedArray).toEqual(deferredArray);
+  });
+
+  it('should clear all entries', async () => {
+    const entries = [['key1', 'value1'], ['key2', 'value2']] as [string, string][];
+    await idb.put(entries);
+
+    await idb.clear();
+    const allEntries = await idb.getAll();
+
+    expect(allEntries.length).toBe(0);
+  });
+
+  it('should clear metadata', async () => {
+    await idb.setMetadata('testKey', 'testValue');
+    await idb.clearMetadata();
+
+    const value = await idb.getMetadata('testKey');
+    expect(value).toBeUndefined();
+  });
+
+  it('should handle concurrent transactions', async () => {
+    const entries1 = [['key1', 'value1']] as [string, string][];
+    const entries2 = [['key2', 'value2']] as [string, string][];
+
+    await Promise.all([idb.put(entries1), idb.put(entries2)]);
+
+    const allEntries = await idb.getAll();
+    expect(allEntries).toContain('value1');
+    expect(allEntries).toContain('value2');
+  });
 });
