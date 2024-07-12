@@ -9,7 +9,7 @@ export class Store<T extends Document> {
 	public deferredPresent: boolean = false;
 	public onSyncStart: () => void = () => {};
 	public onSyncEnd: () => void = () => {};
-	private $$observableObject: Observable<T> = new Observable([] as T[]);
+	private $$observableObject: Observable<T[]> = new Observable([] as T[]);
 	private $$changes: Change<T[]>[] = [];
 	private $$loaded: boolean = false;
 	private $$localPersistence: LocalPersistence | undefined;
@@ -360,10 +360,17 @@ export class Store<T extends Document> {
 	/**
 	 * Public methods, to be used by the application
 	 */
+
+	/**
+	 * List of all items in the store (excluding deleted items)
+	 */
 	get list() {
 		return this.$$observableObject.target.filter((x) => !x.$$deleted);
 	}
 
+	/**
+	 * List of all items in the store (including deleted items) However, the list is not observable
+	 */
 	copy = this.$$observableObject.copy;
 
 	getByID(id: string) {
@@ -378,6 +385,14 @@ export class Store<T extends Document> {
 	}
 
 	new = this.$$model.new;
+
+	restore(id: string) {
+		const item = this.$$observableObject.target.find((x) => x.id === id);
+		if (!item) {
+			throw new Error("Item not found.");
+		}
+		delete item.$$deleted;
+	}
 
 	delete(item: T) {
 		const index = this.$$observableObject.target.findIndex(

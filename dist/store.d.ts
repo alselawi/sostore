@@ -82,13 +82,20 @@ export declare class Store<T extends Document> {
     /**
      * Public methods, to be used by the application
      */
+    /**
+     * List of all items in the store (excluding deleted items)
+     */
     get list(): T[];
+    /**
+     * List of all items in the store (including deleted items) However, the list is not observable
+     */
     copy: T[];
     getByID(id: string): T | undefined;
     add(item: T): void;
     new: <T_1 extends {
         _stripDefaults?<T_2 extends any>(this: T_2): T_2;
     }>(this: new () => T_1, data?: import("./model").RecursivePartial<T_1>) => T_1;
+    restore(id: string): void;
     delete(item: T): void;
     deleteByIndex(index: number): void;
     deleteByID(id: string): void;

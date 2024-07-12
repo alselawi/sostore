@@ -195,7 +195,7 @@ export class ObservableObjectMeta<T extends object> extends ObservableMeta<T> {
 	}
 }
 
-export class ObservableArrayMeta<G, T extends Array<G>> extends ObservableMeta<T> {
+export class ObservableArrayMeta<G, T extends Array<G>> extends ObservableMeta<any> {
 	constructor(properties: MetaProperties<T>) {
 		super(properties, prepare.array);
 	}

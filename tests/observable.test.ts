@@ -178,7 +178,7 @@ describe("observable", () => {
 
 		it("should not alter observers list if observer is not found", () => {
 			const observer = (changes: Change<number[]>[]) => {};
-			const observableArray = new Observable<number>([]);
+			const observableArray = new Observable<number[]>([]);
 			observableArray.observe(observer);
 			const result = observableArray.unobserve(
 				(changes: Change<number[]>[]) => {}
@@ -325,6 +325,77 @@ describe("observable", () => {
 					throw error;
 				});
 			}).toThrow(error);
+		});
+	});
+
+	describe("observing objects", ()=>{
+		it("observing objects",async ()=>{
+			const object = {
+				name: "alex",
+				age: 12,
+				days: [1,2,3,4],
+				children: [
+					{
+						name: "john",
+						age: 12,
+					},
+					{
+						name: "jane",
+						age: 14,
+					}
+				]
+			};
+
+			const observableObject = new Observable(object);
+
+			let changes: Change<any>[] = [];
+
+			observableObject.observe((c) => {
+				changes = c;
+			});
+
+			observableObject.target.name = "bob";
+			observableObject.target.age = 13;
+			observableObject.target.children[0].name = "jim";
+			observableObject.target.children[0].age = 13;
+			observableObject.target.days.push(5);
+			observableObject.target.children[1].name = "jill";
+			observableObject.target.children[1].age = 15;
+			observableObject.target.days.pop();
+			observableObject.target.days.shift();
+			observableObject.target.days.unshift(0);
+			observableObject.target.days.splice(1, 1);
+			observableObject.target.days.splice(1, 0, 10);
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(changes.length).toEqual(12);
+
+			expect(changes[0].type).toEqual("update");
+			expect(changes[0].path).toEqual(["name"]);
+			expect(changes[0].value).toEqual("bob");
+			expect(changes[0].oldValue).toEqual("alex");
+			
+			expect(changes[1].type).toEqual("update");
+			expect(changes[1].path).toEqual(["age"]);
+			expect(changes[1].value).toEqual(13);
+			expect(changes[1].oldValue).toEqual(12);
+
+			expect(changes[2].type).toEqual("update");
+			expect(changes[2].path).toEqual(["children", 0, "name"]);
+			expect(changes[2].value).toEqual("jim");
+			expect(changes[2].oldValue).toEqual("john");
+
+			expect(changes[3].type).toEqual("update");
+			expect(changes[3].path).toEqual(["children", 0, "age"]);
+			expect(changes[3].value).toEqual(13);
+			expect(changes[3].oldValue).toEqual(12);
+
+			expect(changes[4].type).toBe("insert");
+			expect(changes[4].path).toEqual(["days", 4]);
+			expect(changes[4].value).toEqual(5);
+			expect(changes[4].oldValue).toBeUndefined();
+
+			expect(observableObject.target.name).toBe("bob");
 		});
 	});
 });

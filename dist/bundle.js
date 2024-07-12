@@ -813,6 +813,9 @@
             this.$$model = Document;
             this.$$encode = (x) => x;
             this.$$decode = (x) => x;
+            /**
+             * List of all items in the store (including deleted items) However, the list is not observable
+             */
             this.copy = this.$$observableObject.copy;
             this.new = this.$$model.new;
             this.sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
@@ -1104,6 +1107,9 @@
         /**
          * Public methods, to be used by the application
          */
+        /**
+         * List of all items in the store (excluding deleted items)
+         */
         get list() {
             return this.$$observableObject.target.filter((x) => !x.$$deleted);
         }
@@ -1115,6 +1121,13 @@
                 throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
             }
             this.$$observableObject.target.push(item);
+        }
+        restore(id) {
+            const item = this.$$observableObject.target.find((x) => x.id === id);
+            if (!item) {
+                throw new Error("Item not found.");
+            }
+            delete item.$$deleted;
         }
         delete(item) {
             const index = this.$$observableObject.target.findIndex((x) => x.id === item.id);
