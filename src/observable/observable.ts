@@ -2,6 +2,7 @@ import * as utils from "./utils";
 import { oMetaKey } from "./const";
 import { observed, Observer } from "./types";
 import { ObservableArrayMeta, ObservableObjectMeta } from "./meta";
+import { observingComponents } from "../react";
 
 export class Observable<D extends object> {
 	/**
@@ -29,6 +30,11 @@ export class Observable<D extends object> {
 					parent: null,
 			  }).proxy;
 		this.observers = this.target[oMetaKey].observers;
+		this.observe(() => {
+			Object.keys(observingComponents).forEach((key) =>
+				observingComponents[key]()
+			);
+		});
 	}
 
 	/**
