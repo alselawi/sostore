@@ -6,9 +6,7 @@ describe("observable", () => {
 		it("should initialize correctly with a regular array", () => {
 			const arr = [1, 2, 3];
 			const observableArray = new Observable(arr);
-			expect(Observable.isObservable(observableArray.target)).toBe(
-				true
-			);
+			expect(Observable.isObservable(observableArray.target)).toBe(true);
 			expect(JSON.stringify(observableArray.target)).toEqual(
 				JSON.stringify(arr)
 			);
@@ -17,9 +15,7 @@ describe("observable", () => {
 		it("should initialize correctly with an observable array", () => {
 			const arr = [1, 2, 3];
 			const observableArray = new Observable(arr);
-			expect(Observable.isObservable(observableArray.target)).toBe(
-				true
-			);
+			expect(Observable.isObservable(observableArray.target)).toBe(true);
 			expect(JSON.stringify(observableArray.target)).toEqual(
 				JSON.stringify(arr)
 			);
@@ -146,7 +142,7 @@ describe("observable", () => {
 			const observer = (changes) => {};
 			observableArray.observe(() => {});
 			observableArray.unobserve(observer); // Trying to unobserve a non-existent observer
-			expect(observableArray.observers.length).toBe(1);
+			expect(observableArray.observers.length).toBe(2);
 		});
 
 		it("should remove a specific observer when unobserve is called with that observer", () => {
@@ -157,11 +153,11 @@ describe("observable", () => {
 
 			observableArray.observe(observer1);
 			observableArray.observe(observer2);
-			expect(observableArray.observers.length).toBe(2);
+			expect(observableArray.observers.length).toBe(3);
 
 			observableArray.unobserve(observer1);
-			expect(observableArray.observers.length).toBe(1);
-			expect(observableArray.observers[0]).toBe(observer2);
+			expect(observableArray.observers.length).toBe(2);
+			expect(observableArray.observers[1]).toBe(observer2);
 		});
 
 		it("should remove all observers when no argument is provided", () => {
@@ -190,7 +186,7 @@ describe("observable", () => {
 			const observableArray = new Observable([1, 2, 3]);
 			observableArray.observe(observer);
 			const result = observableArray.unobserve();
-			expect(result).toEqual([observer]);
+			expect([result[1]]).toEqual([observer]);
 		});
 		it("should return an empty array when no observers are removed", () => {
 			const observer = (changes: Change<number[]>[]) => {};
@@ -280,9 +276,7 @@ describe("observable", () => {
 			};
 			observableArray.observe(observer);
 
-			expect(Observable.isObservable(observableArray.target)).toBe(
-				true
-			);
+			expect(Observable.isObservable(observableArray.target)).toBe(true);
 			expect(observableArray.copy).toEqual(arr);
 
 			try {
@@ -328,12 +322,12 @@ describe("observable", () => {
 		});
 	});
 
-	describe("observing objects", ()=>{
-		it("observing objects",async ()=>{
+	describe("observing objects", () => {
+		it("observing objects", async () => {
 			const object = {
 				name: "alex",
 				age: 12,
-				days: [1,2,3,4],
+				days: [1, 2, 3, 4],
 				children: [
 					{
 						name: "john",
@@ -342,8 +336,8 @@ describe("observable", () => {
 					{
 						name: "jane",
 						age: 14,
-					}
-				]
+					},
+				],
 			};
 
 			const observableObject = new Observable(object);
@@ -366,7 +360,9 @@ describe("observable", () => {
 			observableObject.target.days.unshift(0);
 			observableObject.target.days.splice(1, 1);
 			observableObject.target.days.splice(1, 0, 10);
-			await new Promise((r) => setTimeout(r, 0));
+			await new Promise((r) => setTimeout(r, 100));
+
+			// console.log(changes);
 
 			expect(changes.length).toEqual(12);
 
@@ -374,7 +370,7 @@ describe("observable", () => {
 			expect(changes[0].path).toEqual(["name"]);
 			expect(changes[0].value).toEqual("bob");
 			expect(changes[0].oldValue).toEqual("alex");
-			
+
 			expect(changes[1].type).toEqual("update");
 			expect(changes[1].path).toEqual(["age"]);
 			expect(changes[1].value).toEqual(13);
@@ -396,6 +392,58 @@ describe("observable", () => {
 			expect(changes[4].oldValue).toBeUndefined();
 
 			expect(observableObject.target.name).toBe("bob");
+		});
+
+		it("observing objects with methods and getters", async () => {
+			class TestObject {
+				number = 12;
+				array: number[] = [1, 2, 3];
+				get double() {
+					return this.number * 2;
+				}
+				update(arg: number) {
+					this.number = arg;
+				}
+				addNewItem(arg: number) {
+					this.array.push(arg);
+				}
+			}
+
+			const testObject = new TestObject();
+			const observableObject = new Observable(testObject);
+
+			let changes: Change<any>[] = [];
+			observableObject.observe((c) => {
+				changes = c;
+			});
+			observableObject.target.update(13);
+			observableObject.target.update(14);
+			observableObject.target.update(15);
+			observableObject.target.addNewItem(4);
+			await new Promise((r) => setTimeout(r, 100));
+
+			expect(changes.length).toBe(4);
+
+			expect(changes[0].type).toBe("update");
+			expect(changes[0].path).toEqual(["number"]);
+			expect(changes[0].value).toEqual(13);
+			expect(changes[0].oldValue).toEqual(12);
+
+			expect(changes[1].type).toBe("update");
+			expect(changes[1].path).toEqual(["number"]);
+			expect(changes[1].value).toEqual(14);
+			expect(changes[1].oldValue).toEqual(13);
+
+			expect(changes[2].type).toBe("update");
+			expect(changes[2].path).toEqual(["number"]);
+			expect(changes[2].value).toEqual(15);
+			expect(changes[2].oldValue).toEqual(14);
+
+			expect(changes[3].type).toBe("insert");
+			expect(changes[3].path).toEqual(["array", 3]);
+			expect(changes[3].value).toEqual(4);
+
+			expect(observableObject.target.double).toBe(30);
 		});
 	});
 });

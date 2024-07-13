@@ -15,17 +15,17 @@ export class Observable<D extends object> {
 	 * An array of the all the observers registered to this observable
 	 */
 	observers: Observer<D>[] = [];
-	constructor(target: D | observed<D>) {
-		this.target = Observable.isObservable(target)
-			? (target as observed<D>)
-			: Array.isArray(target)
+	constructor(argument: D | observed<D>) {
+		this.target = Observable.isObservable(argument)
+			? (argument as observed<D>)
+			: Array.isArray(argument)
 			? new ObservableArrayMeta<D, D[]>({
-					target: target,
+					target: argument,
 					ownKey: "",
 					parent: null,
 			  }).proxy
 			: new ObservableObjectMeta<D>({
-					target: target,
+					target: argument,
 					ownKey: "",
 					parent: null,
 			  }).proxy;
@@ -35,6 +35,14 @@ export class Observable<D extends object> {
 				observingComponents[key]()
 			);
 		});
+
+		/**
+		 * # if the observable is an object, we need to copy its methods and getters as well
+		 * as I commonly use those for state management
+		*/
+		if (utils.isTrueObj(argument) && !Observable.isObservable(argument)) {
+			utils.copyPropertiesTo(argument, this.target);
+		}
 	}
 
 	/**
