@@ -32,7 +32,7 @@ export declare class ObservableMeta<T extends object> {
 export declare class ObservableObjectMeta<T extends object> extends ObservableMeta<T> {
     constructor(properties: MetaProperties<T>);
 }
-export declare class ObservableArrayMeta<G, T extends Array<G>> extends ObservableMeta<T> {
+export declare class ObservableArrayMeta<G, T extends Array<G>> extends ObservableMeta<any> {
     constructor(properties: MetaProperties<T>);
     get(target: T, key: keyof typeof proxiedArrayMethods): (<T_1 extends any[]>(this: observed<T_1>) => any) | (<T_1 extends any[]>(this: observed<T_1>) => number) | (<T_1 extends any[]>(this: observed<T_1>) => any) | (<T_1 extends any[]>(this: observed<T_1>) => number) | (<T_1 extends any[]>(this: observed<T_1>) => observed<T_1>) | (<T_1 extends any[]>(this: observed<T_1>, comparator: (a: any, b: any) => number) => observed<T_1>) | (<T_1 extends any[]>(this: observed<T_1>, filVal: any, start: number, end: number) => observed<T_1>) | (<T_1 extends any[]>(this: observed<T_1>, dest: number, start: number, end: number) => observed<T_1>) | (<T_1 extends any[]>(this: observed<T_1>) => any);
 }

@@ -76,6 +76,40 @@
         }
         return objCopy;
     }
+    function copyPropertiesTo(source, target) {
+        const prototype = Object.getPrototypeOf(source);
+        const propertyNames = [
+            ...Object.getOwnPropertyNames(source),
+            ...Object.getOwnPropertyNames(prototype),
+        ];
+        propertyNames.forEach((name) => {
+            if (name !== "constructor") {
+                const descriptor = Object.getOwnPropertyDescriptor(source, name) ||
+                    Object.getOwnPropertyDescriptor(prototype, name);
+                const isMethod = typeof (descriptor === null || descriptor === void 0 ? void 0 : descriptor.value) === "function";
+                const hasGetter = typeof (descriptor === null || descriptor === void 0 ? void 0 : descriptor.get) === "function";
+                const hasSetter = typeof (descriptor === null || descriptor === void 0 ? void 0 : descriptor.set) === "function";
+                if (descriptor && (isMethod || hasGetter || hasSetter)) {
+                    Object.defineProperty(target, name, descriptor);
+                }
+            }
+        });
+    }
+    function isTrueObj(obj) {
+        // Check if it's an object
+        if (typeof obj !== "object" || obj === null) {
+            return false;
+        }
+        // check if it is a data
+        if (obj.constructor === Date) {
+            return false;
+        }
+        if (Array.isArray(obj)) {
+            return false;
+        }
+        // Check if the prototype's constructor is the same as the object's constructor
+        return Object.getPrototypeOf(obj).constructor === obj.constructor;
+    }
 
     /**
      * Constants
@@ -548,20 +582,91 @@
         }
     }
 
+    const lut = [];
+    for (let i = 0; i < 256; i++) {
+        lut[i] = (i < 16 ? "0" : "") + i.toString(16);
+    }
+    function uuid() {
+        let d0 = (Math.random() * 0xffffffff) | 0;
+        let d1 = (Math.random() * 0xffffffff) | 0;
+        let d2 = (Math.random() * 0xffffffff) | 0;
+        let d3 = (Math.random() * 0xffffffff) | 0;
+        return [
+            lut[d0 & 0xff],
+            lut[(d0 >> 8) & 0xff],
+            lut[(d0 >> 16) & 0xff],
+            lut[(d0 >> 24) & 0xff],
+            '-',
+            lut[d1 & 0xff],
+            lut[(d1 >> 8) & 0xff],
+            '-',
+            lut[((d1 >> 16) & 0x0f) | 0x40],
+            lut[(d1 >> 24) & 0xff],
+            '-',
+            lut[(d2 & 0x3f) | 0x80],
+            lut[(d2 >> 8) & 0xff],
+            '-',
+            lut[(d2 >> 16) & 0xff],
+            lut[(d2 >> 24) & 0xff],
+            lut[d3 & 0xff],
+            lut[(d3 >> 8) & 0xff],
+            lut[(d3 >> 16) & 0xff],
+            lut[(d3 >> 24) & 0xff]
+        ].join('');
+    }
+
+    const observingComponents = {};
+    /**
+     * Enhances a React component to automatically re-render when the observed store changes.
+     * @param store - An instance of Store that extends Document.
+     * @returns A higher-order function that takes a React component as an argument.
+     */
+    function observe(component) {
+        const oComponentDidMount = component.prototype.componentDidMount || (() => { });
+        component.prototype.componentDidMount = function () {
+            this.setState({});
+            this.$$observerID = uuid();
+            observingComponents[this.$$observerID] = () => this.setState({});
+            const oComponentWillUnmount = this.componentWillUnmount || (() => { });
+            this.componentWillUnmount = () => {
+                delete observingComponents[this.$$observerID];
+                oComponentWillUnmount.call(this);
+            };
+            oComponentDidMount.call(this);
+        };
+        return component;
+    }
+
     class Observable {
-        constructor(target) {
+        constructor(argument) {
             /**
              * An array of the all the observers registered to this observable
              */
             this.observers = [];
-            this.target = Observable.isObservable(target)
-                ? target
-                : new ObservableArrayMeta({
-                    target: target,
-                    ownKey: "",
-                    parent: null,
-                }).proxy;
+            this.target = Observable.isObservable(argument)
+                ? argument
+                : Array.isArray(argument)
+                    ? new ObservableArrayMeta({
+                        target: argument,
+                        ownKey: "",
+                        parent: null,
+                    }).proxy
+                    : new ObservableObjectMeta({
+                        target: argument,
+                        ownKey: "",
+                        parent: null,
+                    }).proxy;
             this.observers = this.target[oMetaKey].observers;
+            this.observe(() => {
+                Object.keys(observingComponents).forEach((key) => observingComponents[key]());
+            });
+            /**
+             * # if the observable is an object, we need to copy its methods and getters as well
+             * as I commonly use those for state management
+            */
+            if (isTrueObj(argument) && !Observable.isObservable(argument)) {
+                copyPropertiesTo(argument, this.target);
+            }
         }
         /**
          *
@@ -667,39 +772,6 @@
             }
             return lastPromise;
         };
-    }
-
-    const lut = [];
-    for (let i = 0; i < 256; i++) {
-        lut[i] = (i < 16 ? "0" : "") + i.toString(16);
-    }
-    function uuid() {
-        let d0 = (Math.random() * 0xffffffff) | 0;
-        let d1 = (Math.random() * 0xffffffff) | 0;
-        let d2 = (Math.random() * 0xffffffff) | 0;
-        let d3 = (Math.random() * 0xffffffff) | 0;
-        return [
-            lut[d0 & 0xff],
-            lut[(d0 >> 8) & 0xff],
-            lut[(d0 >> 16) & 0xff],
-            lut[(d0 >> 24) & 0xff],
-            '-',
-            lut[d1 & 0xff],
-            lut[(d1 >> 8) & 0xff],
-            '-',
-            lut[((d1 >> 16) & 0x0f) | 0x40],
-            lut[(d1 >> 24) & 0xff],
-            '-',
-            lut[(d2 & 0x3f) | 0x80],
-            lut[(d2 >> 8) & 0xff],
-            '-',
-            lut[(d2 >> 16) & 0xff],
-            lut[(d2 >> 24) & 0xff],
-            lut[d3 & 0xff],
-            lut[(d3 >> 8) & 0xff],
-            lut[(d3 >> 16) & 0xff],
-            lut[(d3 >> 24) & 0xff]
-        ].join('');
     }
 
     /**
@@ -1180,44 +1252,6 @@
         }
     }
 
-    /**
-     * Enhances a React component to automatically re-render when the observed store changes.
-     * @param store - An instance of Store that extends Document.
-     * @returns A higher-order function that takes a React component as an argument.
-     */
-    function observe(store) {
-        return function (component) {
-            const originalComponentDidMount = component.prototype.componentDidMount || (() => { });
-            component.prototype.componentDidMount = function () {
-                const unObservers = [];
-                this.setState({});
-                const observer = () => this.setState({});
-                if (Array.isArray(store)) {
-                    store.forEach((singleStore) => {
-                        // @ts-ignore
-                        singleStore.$$observableObject.observe(observer);
-                        unObservers.push(() => 
-                        // @ts-ignore
-                        singleStore.$$observableObject.unobserve(observer));
-                    });
-                }
-                else {
-                    // @ts-ignore
-                    store.$$observableObject.observe(observer);
-                    // @ts-ignore
-                    store.$$observableObject.unobserve(observer);
-                }
-                const originalComponentWillUnmount = this.componentWillUnmount || (() => { });
-                this.componentWillUnmount = () => {
-                    unObservers.forEach((unObserver) => unObserver());
-                    originalComponentWillUnmount.call(this);
-                };
-                originalComponentDidMount.call(this);
-            };
-            return component;
-        };
-    }
-
     class IDB {
         constructor({ name }) {
             const request = indexedDB.open(name);
@@ -1407,6 +1441,7 @@
     exports.CloudFlareApexoDB = CloudFlareApexoDB;
     exports.Document = Document;
     exports.IDB = IDB;
+    exports.Observable = Observable;
     exports.Store = Store;
     exports.SubDocument = SubDocument;
     exports.mapSubModel = mapSubModel;

@@ -1,20 +1,37 @@
 import * as utils from "./utils";
 import { oMetaKey } from "./const";
-import { ObservableArrayMeta } from "./meta";
+import { ObservableArrayMeta, ObservableObjectMeta } from "./meta";
+import { observingComponents } from "../react";
 export class Observable {
-    constructor(target) {
+    constructor(argument) {
         /**
          * An array of the all the observers registered to this observable
          */
         this.observers = [];
-        this.target = Observable.isObservable(target)
-            ? target
-            : new ObservableArrayMeta({
-                target: target,
-                ownKey: "",
-                parent: null,
-            }).proxy;
+        this.target = Observable.isObservable(argument)
+            ? argument
+            : Array.isArray(argument)
+                ? new ObservableArrayMeta({
+                    target: argument,
+                    ownKey: "",
+                    parent: null,
+                }).proxy
+                : new ObservableObjectMeta({
+                    target: argument,
+                    ownKey: "",
+                    parent: null,
+                }).proxy;
         this.observers = this.target[oMetaKey].observers;
+        this.observe(() => {
+            Object.keys(observingComponents).forEach((key) => observingComponents[key]());
+        });
+        /**
+         * # if the observable is an object, we need to copy its methods and getters as well
+         * as I commonly use those for state management
+        */
+        if (utils.isTrueObj(argument) && !Observable.isObservable(argument)) {
+            utils.copyPropertiesTo(argument, this.target);
+        }
     }
     /**
      *
