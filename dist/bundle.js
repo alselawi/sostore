@@ -95,21 +95,6 @@
             }
         });
     }
-    function isTrueObj(obj) {
-        // Check if it's an object
-        if (typeof obj !== "object" || obj === null) {
-            return false;
-        }
-        // check if it is a data
-        if (obj.constructor === Date) {
-            return false;
-        }
-        if (Array.isArray(obj)) {
-            return false;
-        }
-        // Check if the prototype's constructor is the same as the object's constructor
-        return Object.getPrototypeOf(obj).constructor === obj.constructor;
-    }
 
     /**
      * Constants
@@ -143,6 +128,8 @@
             for (const key in source) {
                 target[key] = prepare.getObservedOf(source[key], key, oMeta, visited);
             }
+            // also copy methods, getters and setters
+            copyPropertiesTo(source, target);
             return target;
         },
         array(source, oMeta, visited) {
@@ -660,13 +647,6 @@
             this.observe(() => {
                 Object.keys(observingComponents).forEach((key) => observingComponents[key]());
             });
-            /**
-             * # if the observable is an object, we need to copy its methods and getters as well
-             * as I commonly use those for state management
-            */
-            if (isTrueObj(argument) && !Observable.isObservable(argument)) {
-                copyPropertiesTo(argument, this.target);
-            }
         }
         /**
          *

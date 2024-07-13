@@ -25,13 +25,6 @@ export class Observable {
         this.observe(() => {
             Object.keys(observingComponents).forEach((key) => observingComponents[key]());
         });
-        /**
-         * # if the observable is an object, we need to copy its methods and getters as well
-         * as I commonly use those for state management
-        */
-        if (utils.isTrueObj(argument) && !Observable.isObservable(argument)) {
-            utils.copyPropertiesTo(argument, this.target);
-        }
     }
     /**
      *
