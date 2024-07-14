@@ -130,6 +130,13 @@ export class ObservableObjectMeta extends ObservableMeta {
     constructor(properties) {
         super(properties, prepare.object);
     }
+    get(target, key, receiver) {
+        if (utils.isSpecialObj(target)) {
+            const value = Reflect.get(target, key, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+        }
+        return target[key];
+    }
 }
 export class ObservableArrayMeta extends ObservableMeta {
     constructor(properties) {

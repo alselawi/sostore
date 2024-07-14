@@ -1,13 +1,19 @@
 import { oMetaKey } from "./const";
-import { ObservableArrayMeta, ObservableObjectMeta } from "./meta";
+import { ObservableArrayMeta, ObservableObjectMeta, } from "./meta";
 import * as utils from "./utils";
 export const prepare = {
     object(source, oMeta, visited) {
-        const target = {};
-        target[oMetaKey] = oMeta;
-        for (const key in source) {
-            target[key] = prepare.getObservedOf(source[key], key, oMeta, visited);
+        let target = {};
+        if (utils.isSpecialObj(source)) {
+            target = source;
         }
+        else {
+            // for regular objects copy and go deeper
+            for (const key in source) {
+                target[key] = prepare.getObservedOf(source[key], key, oMeta, visited);
+            }
+        }
+        target[oMetaKey] = oMeta;
         // also copy methods, getters and setters
         utils.copyPropertiesTo(source, target);
         return target;

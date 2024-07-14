@@ -31,6 +31,7 @@ export declare class ObservableMeta<T extends object> {
 }
 export declare class ObservableObjectMeta<T extends object> extends ObservableMeta<T> {
     constructor(properties: MetaProperties<T>);
+    get(target: T, key: string | symbol, receiver: any): any;
 }
 export declare class ObservableArrayMeta<G, T extends Array<G>> extends ObservableMeta<any> {
     constructor(properties: MetaProperties<T>);

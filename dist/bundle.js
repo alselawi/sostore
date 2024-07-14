@@ -95,6 +95,18 @@
             }
         });
     }
+    function isSpecialObj(input) {
+        if (input instanceof RegExp ||
+            input instanceof Map ||
+            input instanceof Set ||
+            input instanceof WeakMap ||
+            input instanceof WeakSet ||
+            input instanceof Promise ||
+            input instanceof Date ||
+            input instanceof Error)
+            return true;
+        return false;
+    }
 
     /**
      * Constants
@@ -123,11 +135,17 @@
 
     const prepare = {
         object(source, oMeta, visited) {
-            const target = {};
-            target[oMetaKey] = oMeta;
-            for (const key in source) {
-                target[key] = prepare.getObservedOf(source[key], key, oMeta, visited);
+            let target = {};
+            if (isSpecialObj(source)) {
+                target = source;
             }
+            else {
+                // for regular objects copy and go deeper
+                for (const key in source) {
+                    target[key] = prepare.getObservedOf(source[key], key, oMeta, visited);
+                }
+            }
+            target[oMetaKey] = oMeta;
             // also copy methods, getters and setters
             copyPropertiesTo(source, target);
             return target;
@@ -558,6 +576,13 @@
     class ObservableObjectMeta extends ObservableMeta {
         constructor(properties) {
             super(properties, prepare.object);
+        }
+        get(target, key, receiver) {
+            if (isSpecialObj(target)) {
+                const value = Reflect.get(target, key, receiver);
+                return typeof value === "function" ? value.bind(target) : value;
+            }
+            return target[key];
         }
     }
     class ObservableArrayMeta extends ObservableMeta {
