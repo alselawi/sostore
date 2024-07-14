@@ -84,3 +84,18 @@ export function isTrueObj(obj: any): boolean {
 	// Check if the prototype's constructor is the same as the object's constructor
 	return Object.getPrototypeOf(obj).constructor === obj.constructor;
 }
+
+export function isSpecialObj(input: any) {
+	if (
+		input instanceof RegExp ||
+		input instanceof Map ||
+		input instanceof Set ||
+		input instanceof WeakMap ||
+		input instanceof WeakSet ||
+		input instanceof Promise ||
+		input instanceof Date ||
+		input instanceof Error
+	)
+		return true;
+	return false;
+}

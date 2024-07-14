@@ -445,5 +445,87 @@ describe("observable", () => {
 
 			expect(observableObject.target.double).toBe(30);
 		});
+
+		it("deeply nested classes methods should also be copied", async () => {
+			class Child {
+				name: string = "";
+				age: number = 0;
+				get ageInMonths () {
+					return this.age * 12;
+				}
+				update(arg: number) {
+					this.age = arg;
+				}
+			}
+			class Parent {
+				name: string = "";
+				children: Child[] = [];
+			}
+
+			const parent = new Parent();
+			const observableParent = new Observable(parent);
+			observableParent.target.children.push(new Child());
+			observableParent.target.children.push(new Child());
+
+			await new Promise((r) => setTimeout(r, 100));
+			let changes: Change<any>[] = [];
+			observableParent.observe((c) => {
+				changes = c;
+			});
+			
+			observableParent.target.children[0].update(12);
+			observableParent.target.children[1].update(14);
+
+
+			await new Promise((r) => setTimeout(r, 100));
+
+			expect(observableParent.target.children[0].ageInMonths).toBe(12 * 12);
+			expect(observableParent.target.children[1].ageInMonths).toBe(14 * 12);
+
+			expect(changes.length).toBe(2);
+
+			expect(changes[0].type).toBe("update");
+			expect(changes[0].path).toEqual(["children", 0, "age"]);
+			expect(changes[0].value).toBe(12);
+
+			expect(changes[1].type).toBe("update");
+			expect(changes[1].path).toEqual(["children", 1, "age"]);
+			expect(changes[1].value).toBe(14);
+		});
+
+		it("Native JS objects should also be copied", async () => {
+
+			let obj = {
+				date: new Date(),
+				regex: /abcd/,
+				array: [1, 2, 3],
+				map: new Map([["a", 1], ["b", 2]]),
+				set: new Set([1, 2, 3]),
+				arrayBuffer: new ArrayBuffer(8),
+				typedArray: new Uint8Array(new ArrayBuffer(8)),
+				dataView: new DataView(new ArrayBuffer(8)),
+				promise: Promise.resolve(1),
+				proxy: new Proxy({}, {}),
+				weakMap: new WeakMap([[{}, 1]]),
+				weakSet: new WeakSet([{}]),
+				symbol: Symbol("abc"),
+				bigint: 123n,
+				error: new Error("error"),
+			}
+
+			const observableObject = new Observable(obj);
+
+			expect(observableObject.target.date.getMonth()).toEqual(obj.date.getMonth());
+			expect(observableObject.target.regex.test("abcd")).toEqual(obj.regex.test("abcd"));
+			expect(observableObject.target.array.pop()).toEqual(obj.array.pop());
+			expect(observableObject.target.map.get("a")).toEqual(obj.map.get("a"));
+			expect(observableObject.target.set.has(1)).toEqual(obj.set.has(1));
+			expect((await observableObject.target.promise).toPrecision()).toEqual((await obj.promise).toPrecision());
+			expect(observableObject.target.weakMap.get({})).toEqual(obj.weakMap.get({}));
+			expect(observableObject.target.weakSet.has({})).toEqual(obj.weakSet.has({}));
+			expect(observableObject.target.symbol).toEqual(obj.symbol);
+			expect(observableObject.target.bigint).toEqual(obj.bigint);
+			expect(observableObject.target.error.message).toEqual(obj.error.message);
+		});
 	});
 });

@@ -1,6 +1,6 @@
 import { proxiedArrayMethods } from "./arr";
 import { Change } from "./change";
-import { oMetaKey, DELETE, INSERT,  UPDATE } from "./const";
+import { oMetaKey, DELETE, INSERT, UPDATE } from "./const";
 import { prepare } from "./prepare";
 import { observed, Observer, PrepareFunction } from "./types";
 import * as utils from "./utils";
@@ -193,9 +193,20 @@ export class ObservableObjectMeta<T extends object> extends ObservableMeta<T> {
 	constructor(properties: MetaProperties<T>) {
 		super(properties, prepare.object);
 	}
+
+	get(target: T, key: string | symbol, receiver: any) {
+		if (utils.isSpecialObj(target)) {
+			const value = Reflect.get(target, key, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		}
+		return (target as any)[key];
+	}
 }
 
-export class ObservableArrayMeta<G, T extends Array<G>> extends ObservableMeta<any> {
+export class ObservableArrayMeta<
+	G,
+	T extends Array<G>
+> extends ObservableMeta<any> {
 	constructor(properties: MetaProperties<T>) {
 		super(properties, prepare.array);
 	}
