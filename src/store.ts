@@ -1,5 +1,5 @@
 import { Change, Observable } from "./observable";
-import { deferredArray, LocalPersistence } from "./persistence/local";
+import { deferredArray, Dump, LocalPersistence } from "./persistence/local";
 import { debounce } from "./debounce";
 import { Document } from "./model";
 import { RemotePersistence } from "./persistence/remote";
@@ -139,7 +139,7 @@ export class Store<T extends Document> {
 			toWrite.push([item.id, serializedLine]);
 			toDeffer.push({
 				ts: Date.now(),
-				data: serializedLine,
+				id: item.id,
 			});
 		}
 
@@ -166,10 +166,12 @@ export class Store<T extends Document> {
 		 * 2. There's an error during sending updates to the remote server
 		 * 3. We're offline
 		 */
-		await this.$$localPersistence.putDeferred(
-			deferredArray.concat(...toDeffer)
-		);
-		this.deferredPresent = true;
+		if (this.$$remotePersistence) {
+			await this.$$localPersistence.putDeferred(
+				deferredArray.concat(...toDeffer)
+			);
+			this.deferredPresent = true;
+		}
 		this.onSyncEnd();
 	}
 
@@ -267,8 +269,7 @@ export class Store<T extends Document> {
 
 			// check for conflicts
 			deferredArray = deferredArray.filter((x) => {
-				let item = this.$$deserialize(x.data);
-				const conflict = remoteUpdates.rows.findIndex((y) => y.id === item.id);
+				const conflict = remoteUpdates.rows.findIndex((y) => y.id === x.id);
 				// take row-specific version if available, otherwise rely on latest version
 				const comparison = Number(
 					(
@@ -297,9 +298,8 @@ export class Store<T extends Document> {
 
 			// then local
 			const updatedRows = new Map();
-			for (const local of deferredArray) {
-				let item = this.$$deserialize(local.data);
-				updatedRows.set(item.id, local.data);
+			for (const d of deferredArray) {
+				updatedRows.set(d.id, await this.$$localPersistence.getOne(d.id));
 				// latest deferred write wins since it would overwrite the previous one
 			}
 			await this.$$remotePersistence.put(
@@ -357,6 +357,28 @@ export class Store<T extends Document> {
 		return tries;
 	}
 
+	async backup() {
+		if (!this.$$localPersistence) {
+			throw new Error("Local persistence not available");
+		}
+		return JSON.stringify(await this.$$localPersistence.dump());
+	}
+
+	async restoreBackup(input: string) {
+		const dump = JSON.parse(input) as Dump;
+		if (!this.$$localPersistence) {
+			throw new Error("Local persistence not available");
+		}
+		await this.$$localPersistence.put(dump.data);
+		await this.$$localPersistence.putDeferred(dump.metadata.deferred);
+		await this.$$localPersistence.putVersion(dump.metadata.version);
+		await this.$$loadFromLocal();
+		if (this.$$remotePersistence) {
+			await this.$$remotePersistence.put(dump.data);
+			await this.sync(); // to get latest version number
+		}
+	}
+
 	/**
 	 * Public methods, to be used by the application
 	 */
@@ -371,7 +393,9 @@ export class Store<T extends Document> {
 	/**
 	 * List of all items in the store (including deleted items) However, the list is not observable
 	 */
-	copy = this.$$observableObject.copy;
+	get copy() {
+		return this.$$observableObject.copy;
+	}
 
 	getByID(id: string) {
 		return this.$$observableObject.target.find((x) => x.id === id);
@@ -386,7 +410,7 @@ export class Store<T extends Document> {
 
 	new = this.$$model.new;
 
-	restore(id: string) {
+	restoreItem(id: string) {
 		const item = this.$$observableObject.target.find((x) => x.id === id);
 		if (!item) {
 			throw new Error("Item not found.");
@@ -427,6 +451,17 @@ export class Store<T extends Document> {
 			throw new Error("ID mismatch.");
 		}
 		this.$$observableObject.target[index] = item;
+	}
+
+	updateByID(id: string, item: T) {
+		const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+		if (index === -1) {
+			throw new Error("Item not found.");
+		}
+		if (this.$$observableObject.target[index].id !== item.id) {
+			throw new Error("ID mismatch.");
+		}
+		this.updateByIndex(index, item);
 	}
 
 	sync = debounce(this.$$sync.bind(this), this.$$debounceRate);

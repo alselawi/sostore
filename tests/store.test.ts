@@ -17,8 +17,7 @@ describe("Store", () => {
 	const token = "token";
 
 	beforeEach(async () => {
-		store = new Store({
-		});
+		store = new Store({});
 
 		let workerFile = readFileSync(
 			"../apexo-database/dist/index.js",
@@ -233,7 +232,7 @@ describe("Store", () => {
 				name: "staff",
 			}),
 		});
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		{
 			const tries = await store.sync();
@@ -242,7 +241,7 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const rows = (await env.DB.prepare("SELECT * FROM staff").all()).results;
 		expect(rows[0].data).toBe('{"id":"1","name":"alex"}');
@@ -292,9 +291,9 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 		store.delete({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const rows = (await env.DB.prepare("SELECT * FROM staff").all()).results;
 		expect(rows.length).toBe(1);
@@ -341,9 +340,9 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 		store.updateByIndex(0, { id: "1", name: "john" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const rows = (await env.DB.prepare("SELECT * FROM staff").all()).results;
 		expect(rows.length).toBe(1);
@@ -450,7 +449,7 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const version = Number(
 			(
@@ -516,7 +515,7 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const version = Number(
 			(
@@ -579,11 +578,11 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		store.isOnline = false;
 		store.add({ id: "2", name: "john" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(2);
 		expect(
@@ -595,7 +594,7 @@ describe("Store", () => {
 			expect(tries[0].exception).toBe("Offline");
 		}
 
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(2);
 		expect(
@@ -652,11 +651,11 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		store.isOnline = false;
 		store.updateByIndex(0, { id: "1", name: "john" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -672,7 +671,7 @@ describe("Store", () => {
 			expect(tries[0].exception).toBe("Offline");
 		}
 
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -737,7 +736,7 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		{
 			const tries = await store.sync();
@@ -752,11 +751,11 @@ describe("Store", () => {
 			remotePersistence: new CloudFlareApexoDB({
 				endpoint: "https://apexo-database.vercel.app",
 				token: "any",
-				name: "staff"
+				name: "staff",
 			}),
 			localPersistence: new IDB({
-				name: "staff"
-			})
+				name: "staff",
+			}),
 		});
 		store.isOnline = false;
 		{
@@ -770,8 +769,8 @@ describe("Store", () => {
 			remotePersistence: new CloudFlareApexoDB({
 				endpoint: "https://apexo-database.vercel.app",
 				token: "any",
-				name: "staff"
-			})
+				name: "staff",
+			}),
 		});
 		{
 			const tries = await store.sync();
@@ -828,7 +827,7 @@ describe("Store", () => {
 
 		store.isOnline = false;
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		const version = Number(
 			(
@@ -898,7 +897,7 @@ describe("Store", () => {
 
 		store.isOnline = false;
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		// this is more recent
 		const version = Number(
@@ -969,7 +968,7 @@ describe("Store", () => {
 			expect(tries[0].pulled).toBe(1);
 			expect(tries[1].exception).toBe("Nothing to sync");
 		}
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		store.isOnline = false;
 
@@ -992,7 +991,7 @@ describe("Store", () => {
 		store.isOnline = false;
 		// this is more recent
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 		store.isOnline = true;
 
 		{
@@ -1176,14 +1175,14 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		store.isOnline = false;
 		store.updateByIndex(0, { id: "1", name: "john" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		store.updateByIndex(0, { id: "1", name: "mark" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -1199,7 +1198,7 @@ describe("Store", () => {
 			expect(tries[0].exception).toBe("Offline");
 		}
 
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -1264,11 +1263,11 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		store.isOnline = false;
 		store.updateByIndex(0, { id: "1", name: "john" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -1284,7 +1283,7 @@ describe("Store", () => {
 			expect(tries[0].exception).toBe("Offline");
 		}
 
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
 		expect(
@@ -1298,7 +1297,7 @@ describe("Store", () => {
 		store.isOnline = true;
 
 		store.updateByIndex(0, { id: "1", name: "mark" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(
 			(await env.DB.prepare("SELECT * FROM staff").all()).results[0].data
@@ -1356,7 +1355,7 @@ describe("Store", () => {
 		}
 
 		store.add({ id: "1", name: "alex" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		{
 			const tries = await store.sync();
@@ -1367,7 +1366,7 @@ describe("Store", () => {
 
 		store.isOnline = false;
 		store.updateByIndex(0, { id: "1", name: "mathew" });
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.deferredPresent).toBe(true);
 
@@ -1382,7 +1381,9 @@ describe("Store", () => {
 				await (store as any).$$localPersistence.getMetadata("deferred")
 			)[0].ts
 		);
-		const localVersion = Number(await (store as any).$$localPersistence.getVersion());
+		const localVersion = Number(
+			await (store as any).$$localPersistence.getVersion()
+		);
 		expect(deferredVersion).toBeGreaterThan(localVersion);
 		const remoteConflictVersion = (deferredVersion + localVersion) / 2;
 
@@ -1413,5 +1414,351 @@ describe("Store", () => {
 		expect(JSON.stringify(store.list)).toBe(
 			`[{"id":"1","name":"mathew"},{"id":"2","name":"ron"}]`
 		);
+	});
+	describe("Backup and restore", () => {
+		it("should throw an error when local persistence is not available", async () => {
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store<{ name: string; id: string }>({
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+			});
+			(store as any).$$localPersistence = undefined;
+			await expect(() => store.backup()).rejects.toThrow(
+				"Local persistence not available"
+			);
+		});
+
+		it("should return a JSON string of the local persistence dump", async () => {
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store<{ name: string; id: string }>({
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+			});
+			expect(await store.backup()).toBe(
+				`{"data":[],"metadata":{"version":0,"deferred":[]}}`
+			);
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+
+			await new Promise((r) => setTimeout(r, 150));
+
+			expect(await store.backup()).toBe(
+				JSON.stringify({
+					data: [
+						["1", '{"id":"1","name":"alex"}'],
+						["2", '{"id":"2","name":"mark"}'],
+					],
+					metadata: {
+						version: 0,
+						deferred: [],
+					},
+				})
+			);
+		});
+
+		it("deferred updates should be present on backup dump", async () => {
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store({
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+			});
+
+			store.add({ id: "0", name: "ali" });
+			await new Promise((r) => setTimeout(r, 100));
+			store.isOnline = false;
+
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+			await new Promise((r) => setTimeout(r, 100));
+
+			const backup = JSON.parse(await store.backup());
+
+			expect(backup.data.length).toBe(3);
+			expect(backup.data[0][0]).toBe("0");
+			expect(backup.data[1][0]).toBe("1");
+			expect(backup.data[2][0]).toBe("2");
+
+			expect(backup.metadata.deferred.length).toBe(2);
+			expect(backup.metadata.deferred[0].id).toBe("1");
+			expect(backup.metadata.deferred[1].id).toBe("2");
+		});
+
+		it("should restore the local persistence from a JSON string", async () => {
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store<{ name: string; id: string }>({
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+			});
+
+			await store.loaded;
+
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+			await new Promise((r) => setTimeout(r, 150));
+
+			const backup = await store.backup();
+
+			store.updateByID("1", { name: "mathew", id: "1" });
+			store.updateByID("2", { name: "ron", id: "2" });
+			await new Promise((r) => setTimeout(r, 150));
+
+			expect(store.copy).toEqual([
+				{ id: "1", name: "mathew" },
+				{ id: "2", name: "ron" },
+			]);
+
+			await store.restoreBackup(backup);
+			await new Promise((r) => setTimeout(r, 150));
+
+			expect(store.copy).toEqual([
+				{ id: "1", name: "alex" },
+				{ id: "2", name: "mark" },
+			]);
+		});
+
+		it("should restore deferred", async ()=>{
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store({
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+			});
+
+			await store.loaded;
+
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+			await new Promise((r) => setTimeout(r, 100));
+
+			store.isOnline = false;
+			await new Promise((r) => setTimeout(r, 100));
+
+			store.updateByID("1", { name: "mathew", id: "1" });
+			store.updateByID("2", { name: "ron", id: "2" });
+
+			await new Promise((r) => setTimeout(r, 100));
+			expect(store.copy).toEqual([
+				{ id: "1", name: "mathew" },
+				{ id: "2", name: "ron" },
+			]);
+			const deferred = (await (store as any).$$localPersistence?.getDeferred());
+			expect(store.deferredPresent).toBe(true);
+
+			const backup = await store.backup();
+
+			store.isOnline = true;
+			await store.sync();
+			await new Promise((r) => setTimeout(r, 100));
+
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual([]);
+
+			store.isOnline = false;
+
+			await store.restoreBackup(backup);
+			await new Promise((r) => setTimeout(r, 100));
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual(deferred);
+
+		});
+
+		it("should restore and process deferred", async ()=>{
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store({
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+			});
+
+			await store.loaded;
+
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+			await new Promise((r) => setTimeout(r, 100));
+
+			store.isOnline = false;
+			await new Promise((r) => setTimeout(r, 100));
+
+			store.updateByID("1", { name: "mathew", id: "1" });
+			store.updateByID("2", { name: "ron", id: "2" });
+
+			await new Promise((r) => setTimeout(r, 100));
+			expect(store.copy).toEqual([
+				{ id: "1", name: "mathew" },
+				{ id: "2", name: "ron" },
+			]);
+			const deferred = (await (store as any).$$localPersistence?.getDeferred());
+			expect(store.deferredPresent).toBe(true);
+
+			const backup = await store.backup();
+
+			store.isOnline = true;
+			await store.sync();
+			await new Promise((r) => setTimeout(r, 100));
+
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual([]);
+
+			await store.restoreBackup(backup);
+			await new Promise((r) => setTimeout(r, 100));
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual([]);
+
+		});
+
+		it("should get a new version after restore is completed", async ()=>{
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store({
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+			});
+
+			await store.loaded;
+
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+			await new Promise((r) => setTimeout(r, 100));
+			
+			await store.sync();
+			const version1 = (await (store as any).$$localPersistence?.getVersion());
+			const version2 = (await (store as any).$$remotePersistence?.getVersion());
+
+			expect(version1).toBe(version2);
+
+			const backup = await store.backup();
+			await store.restoreBackup(backup);
+			const version3 = (await (store as any).$$localPersistence?.getVersion());
+			const version4 = (await (store as any).$$remotePersistence?.getVersion());
+			expect(version3).toBe(version4);
+
+			expect(version3).greaterThan(version1);
+
+		});
 	});
 });

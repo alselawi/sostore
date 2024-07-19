@@ -1,12 +1,22 @@
 import { Persistence } from "./type";
 
-export type deferredArray = { ts: number; data: string }[];
+export type deferredArray = { ts: number; id: string }[];
+
+export interface Dump {
+	data: [string, string][];
+	metadata: {
+		version: number;
+		deferred: deferredArray;
+	};
+}
 
 export interface LocalPersistence extends Persistence {
-	getAll(): Promise<string[]>
+	getAll(): Promise<string[]>;
+	getOne(id: string): Promise<string>;
 	putVersion(number: number): Promise<void>;
 	getDeferred(): Promise<deferredArray>;
 	putDeferred(arr: deferredArray): Promise<void>;
+	dump(): Promise<Dump>;
 }
 
 type UseStore = <T>(
@@ -18,7 +28,7 @@ export class IDB implements LocalPersistence {
 	private store: UseStore;
 	private metadataStore: UseStore;
 
-	constructor({name}:{name: string}) {
+	constructor({ name }: { name: string }) {
 		const request = indexedDB.open(name);
 		request.onupgradeneeded = function (event) {
 			const db = (event.target as IDBOpenDBRequest).result;
@@ -100,8 +110,14 @@ export class IDB implements LocalPersistence {
 					rows.push(cursor.value as string)
 				);
 			}
-			return rows
+			return rows;
 		});
+	}
+
+	getOne(id: string): Promise<string> {
+		return this.store("readonly", (store) =>
+			this.pr(store.get(id) as IDBRequest<string>)
+		);
 	}
 
 	async getVersion() {
@@ -151,6 +167,32 @@ export class IDB implements LocalPersistence {
 		return this.metadataStore("readwrite", (store) => {
 			store.clear();
 			return this.pr(store.transaction);
+		});
+	}
+
+	dump() {
+		return this.store("readonly", async (store) => {
+			let data: [string, string][] = [];
+			if (store.getAll && store.getAllKeys) {
+				const keys: string[] = await this.pr(
+					store.getAllKeys() as IDBRequest<string[]>
+				);
+				const values: string[] = await this.pr(
+					store.getAll() as IDBRequest<string[]>
+				);
+				data = keys.map((key, index) => [key, values[index]]);
+			} else {
+				await this.eachCursor(store, (cursor) => {
+					data.push([cursor.key as string, cursor.value as string]);
+				});
+			}
+			return {
+				data,
+				metadata: {
+					version: await this.getVersion(),
+					deferred: await this.getDeferred(),
+				},
+			};
 		});
 	}
 }

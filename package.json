@@ -1,6 +1,6 @@
 {
 	"name": "apical-store",
-	"version": "0.0.81",
+	"version": "0.0.82",
 	"description": "reactive-syncable-datastore",
 	"main": "dist/bundle.js",
 	"module": "dist/main.js",
