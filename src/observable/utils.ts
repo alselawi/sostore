@@ -15,11 +15,13 @@ import { ObservableMeta } from "./meta";
 		: this
 );
 
-export function findGrandParent<T extends object>(
-	observable: ObservableMeta<T>
-): ObservableMeta<T> {
-	if (observable.parent) return findGrandParent(observable.parent);
-	else return observable;
+export function findGrandParent<T extends object>(observable: ObservableMeta<T>, visited = new Set()): ObservableMeta<T> {
+    if (visited.has(observable)) {
+        throw new Error("Circular reference detected in observable structure");
+    }
+    visited.add(observable);
+    if (observable.parent) return findGrandParent(observable.parent, visited);
+    else return observable;
 }
 
 export function copy<T>(obj: T): T {
