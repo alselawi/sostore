@@ -5,7 +5,6 @@ import { Document } from "./model";
 import { RemotePersistence } from "./persistence/remote";
 
 export class Store<T extends Document> {
-	public isOnline = true;
 	public deferredPresent: boolean = false;
 	public onSyncStart: () => void = () => {};
 	public onSyncEnd: () => void = () => {};
@@ -234,6 +233,7 @@ export class Store<T extends Document> {
 	private async $$syncTry(): Promise<{
 		pushed?: number;
 		pulled?: number;
+		conflicts?: number;
 		exception?: string;
 	}> {
 		if (!this.$$localPersistence) {
@@ -255,6 +255,7 @@ export class Store<T extends Document> {
 			const localVersion = await this.$$localPersistence.getVersion();
 			const remoteVersion = await this.$$remotePersistence.getVersion();
 			let deferredArray = await this.$$localPersistence.getDeferred();
+			let conflicts = 0;
 
 			if (localVersion === remoteVersion && deferredArray.length === 0) {
 				return {
@@ -283,9 +284,11 @@ export class Store<T extends Document> {
 				} else if (x.ts > comparison) {
 					// there's a conflict, but the local change is newer
 					remoteUpdates.rows.splice(conflict, 1);
+					conflicts++;
 					return true;
 				} else {
 					// there's a conflict, and the remote change is newer
+					conflicts++;
 					return false;
 				}
 			});
@@ -329,7 +332,7 @@ export class Store<T extends Document> {
 
 			let pushed = deferredArray.length;
 			let pulled = remoteUpdates.rows.length;
-			return { pushed, pulled };
+			return { pushed, pulled, conflicts };
 		} catch (e) {
 			console.error(e);
 			return {
@@ -364,7 +367,22 @@ export class Store<T extends Document> {
 		return JSON.stringify(await this.$$localPersistence.dump());
 	}
 
-	async restoreBackup(input: string) {
+	async restoreBackup(
+		input: string
+	): Promise<
+		{
+			pushed?: number;
+			pulled?: number;
+			conflicts?: number;
+			exception?: string;
+		}[]
+	> {
+		if (this.$$remotePersistence) {
+			await this.$$remotePersistence.checkOnline();
+			if (!this.$$remotePersistence.isOnline) {
+				throw new Error("Can not restore backup when the client is offline!");
+			}
+		}
 		const dump = JSON.parse(input) as Dump;
 		if (!this.$$localPersistence) {
 			throw new Error("Local persistence not available");
@@ -375,8 +393,9 @@ export class Store<T extends Document> {
 		await this.$$loadFromLocal();
 		if (this.$$remotePersistence) {
 			await this.$$remotePersistence.put(dump.data);
-			await this.sync(); // to get latest version number
+			return await this.sync(); // to get latest version number
 		}
+		return [];
 	}
 
 	/**
@@ -484,5 +503,10 @@ export class Store<T extends Document> {
 				}
 			}, 100);
 		});
+	}
+
+	get isOnline() {
+		if (!this.$$remotePersistence) return false;
+		return this.$$remotePersistence.isOnline;
 	}
 }

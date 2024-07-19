@@ -15,6 +15,7 @@ describe("Store", () => {
 	const env: { DB: D1Database; CACHE: KVNamespace } = {} as any;
 
 	const token = "token";
+	let mf: Miniflare;
 
 	beforeEach(async () => {
 		store = new Store({});
@@ -28,7 +29,7 @@ describe("Store", () => {
 		);
 		writeFileSync("./worker.js", workerFile);
 
-		const mf = new Miniflare({
+		mf = new Miniflare({
 			modules: true,
 			scriptPath: `./worker.js`,
 			kvNamespaces: ["CACHE"],
@@ -580,7 +581,9 @@ describe("Store", () => {
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.add({ id: "2", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
@@ -601,7 +604,8 @@ describe("Store", () => {
 			(await env.DB.prepare("SELECT * FROM staff").all()).results.length
 		).toBe(1);
 
-		store.isOnline = true;
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 
 		{
 			const tries = await store.sync(); // now it should send the deferred changes
@@ -653,7 +657,9 @@ describe("Store", () => {
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.updateByIndex(0, { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
@@ -682,7 +688,8 @@ describe("Store", () => {
 			(await env.DB.prepare("SELECT * FROM staff").all()).results[0].data
 		).toBe('{"id":"1","name":"alex"}');
 
-		store.isOnline = true;
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 
 		{
 			const tries = await store.sync(); // now it should send the deferred changes
@@ -757,7 +764,10 @@ describe("Store", () => {
 				name: "staff",
 			}),
 		});
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
+		await store.sync();
 		{
 			const tries = await store.sync();
 			expect(tries[0].exception).toBe("Offline");
@@ -825,10 +835,15 @@ describe("Store", () => {
 			expect(tries[1].exception).toBe("Nothing to sync");
 		}
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
 
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
+		
 		const version = Number(
 			(
 				await (
@@ -845,7 +860,6 @@ describe("Store", () => {
 			).output
 		);
 
-		store.isOnline = true;
 		{
 			const tries = await store.sync();
 			expect(tries.length).toBe(3);
@@ -895,10 +909,13 @@ describe("Store", () => {
 			expect(tries[1].exception).toBe("Nothing to sync");
 		}
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
-
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 		// this is more recent
 		const version = Number(
 			(
@@ -916,7 +933,6 @@ describe("Store", () => {
 			).output
 		);
 
-		store.isOnline = true;
 		{
 			const tries = await store.sync();
 			expect(tries.length).toBe(2);
@@ -970,8 +986,9 @@ describe("Store", () => {
 		}
 		await new Promise((r) => setTimeout(r, 150));
 
-		store.isOnline = false;
-
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
+		
 		const version = Number(
 			(
 				await (
@@ -988,12 +1005,14 @@ describe("Store", () => {
 			).output
 		);
 		await new Promise((r) => setTimeout(r, 1300));
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		// this is more recent
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
-		store.isOnline = true;
-
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 		{
 			const tries = await store.sync();
 			expect(tries.length).toBe(3);
@@ -1177,7 +1196,9 @@ describe("Store", () => {
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.updateByIndex(0, { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
@@ -1209,8 +1230,8 @@ describe("Store", () => {
 			(await env.DB.prepare("SELECT * FROM staff").all()).results[0].data
 		).toBe('{"id":"1","name":"alex"}');
 
-		store.isOnline = true;
-
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 		{
 			const tries = await store.sync(); // now it should send the deferred changes
 			expect(tries.length).toBe(3);
@@ -1265,7 +1286,9 @@ describe("Store", () => {
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.updateByIndex(0, { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
@@ -1294,7 +1317,8 @@ describe("Store", () => {
 			(await env.DB.prepare("SELECT * FROM staff").all()).results[0].data
 		).toBe('{"id":"1","name":"alex"}');
 
-		store.isOnline = true;
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 
 		store.updateByIndex(0, { id: "1", name: "mark" });
 		await new Promise((r) => setTimeout(r, 150));
@@ -1364,7 +1388,9 @@ describe("Store", () => {
 			expect(tries[1].exception).toBe("Nothing to sync");
 		}
 
-		store.isOnline = false;
+		global.fetch = () => {
+			throw new Error("Mock connectivity error");
+		};
 		store.updateByIndex(0, { id: "1", name: "mathew" });
 		await new Promise((r) => setTimeout(r, 150));
 
@@ -1396,7 +1422,8 @@ describe("Store", () => {
 			}, 'ali', '2');`
 		);
 
-		store.isOnline = true;
+		global.fetch = mf.dispatchFetch as any;
+		(store as any).$$remotePersistence.isOnline = true;
 
 		const keys = (await env.CACHE.list()).keys.map((x) => x.name);
 		for (let index = 0; index < keys.length; index++) {
@@ -1517,7 +1544,9 @@ describe("Store", () => {
 
 			store.add({ id: "0", name: "ali" });
 			await new Promise((r) => setTimeout(r, 100));
-			store.isOnline = false;
+			global.fetch = () => {
+				throw new Error("Mock connectivity error");
+			};
 
 			store.add({ id: "1", name: "alex" });
 			store.add({ id: "2", name: "mark" });
@@ -1588,7 +1617,7 @@ describe("Store", () => {
 			]);
 		});
 
-		it("should restore deferred", async ()=>{
+		it("should restore deferred", async () => {
 			{
 				// clearing local database before starting
 				store = new Store({
@@ -1621,7 +1650,78 @@ describe("Store", () => {
 			store.add({ id: "2", name: "mark" });
 			await new Promise((r) => setTimeout(r, 100));
 
-			store.isOnline = false;
+			global.fetch = () => {
+				throw new Error("Mock connectivity error");
+			};
+			await new Promise((r) => setTimeout(r, 100));
+
+			store.updateByID("1", { name: "mathew", id: "1" });
+			store.updateByID("2", { name: "ron", id: "2" });
+			await new Promise((r) => setTimeout(r, 100));
+			expect(store.copy).toEqual([
+				{ id: "1", name: "mathew" },
+				{ id: "2", name: "ron" },
+			]);
+			const deferred = await (store as any).$$localPersistence?.getDeferred();
+			expect(store.deferredPresent).toBe(true);
+			const backup = await store.backup();
+			global.fetch = mf.dispatchFetch as any;
+			(store as any).$$remotePersistence.isOnline = true;
+
+			await store.sync();
+			await new Promise((r) => setTimeout(r, 100));
+
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual(
+				[]
+			);
+
+			global.fetch = () => {
+				throw new Error("Mock connectivity error");
+			};
+			await expect(async () => await store.restoreBackup(backup)).to.rejects.toThrow();
+
+			global.fetch = mf.dispatchFetch as any;
+			const sync = await store.restoreBackup(backup);
+			expect(sync.length).toBe(2);
+			expect(sync[0].conflicts).toBe(2);
+		});
+
+		it("should restore and process deferred", async () => {
+			{
+				// clearing local database before starting
+				store = new Store({
+					remotePersistence: new CloudFlareApexoDB({
+						token,
+						endpoint: "https://apexo-database.vercel.app",
+						name: "staff",
+					}),
+					localPersistence: new IDB({
+						name: "staff",
+					}),
+				});
+				await (store as any).$$localPersistence.clear();
+				await (store as any).$$localPersistence.clearMetadata();
+			}
+			store = new Store({
+				remotePersistence: new CloudFlareApexoDB({
+					token,
+					endpoint: "https://apexo-database.vercel.app",
+					name: "staff",
+				}),
+				localPersistence: new IDB({
+					name: "staff",
+				}),
+			});
+
+			await store.loaded;
+
+			store.add({ id: "1", name: "alex" });
+			store.add({ id: "2", name: "mark" });
+			await new Promise((r) => setTimeout(r, 100));
+
+			global.fetch = () => {
+				throw new Error("Mock connectivity error");
+			};
 			await new Promise((r) => setTimeout(r, 100));
 
 			store.updateByID("1", { name: "mathew", id: "1" });
@@ -1632,26 +1732,29 @@ describe("Store", () => {
 				{ id: "1", name: "mathew" },
 				{ id: "2", name: "ron" },
 			]);
-			const deferred = (await (store as any).$$localPersistence?.getDeferred());
+			const deferred = await (store as any).$$localPersistence?.getDeferred();
 			expect(store.deferredPresent).toBe(true);
 
 			const backup = await store.backup();
 
-			store.isOnline = true;
+			global.fetch = mf.dispatchFetch as any;
+			(store as any).$$remotePersistence.isOnline = true;
+
 			await store.sync();
 			await new Promise((r) => setTimeout(r, 100));
 
-			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual([]);
-
-			store.isOnline = false;
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual(
+				[]
+			);
 
 			await store.restoreBackup(backup);
 			await new Promise((r) => setTimeout(r, 100));
-			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual(deferred);
-
+			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual(
+				[]
+			);
 		});
 
-		it("should restore and process deferred", async ()=>{
+		it("should get a new version after restore is completed", async () => {
 			{
 				// clearing local database before starting
 				store = new Store({
@@ -1684,81 +1787,19 @@ describe("Store", () => {
 			store.add({ id: "2", name: "mark" });
 			await new Promise((r) => setTimeout(r, 100));
 
-			store.isOnline = false;
-			await new Promise((r) => setTimeout(r, 100));
-
-			store.updateByID("1", { name: "mathew", id: "1" });
-			store.updateByID("2", { name: "ron", id: "2" });
-
-			await new Promise((r) => setTimeout(r, 100));
-			expect(store.copy).toEqual([
-				{ id: "1", name: "mathew" },
-				{ id: "2", name: "ron" },
-			]);
-			const deferred = (await (store as any).$$localPersistence?.getDeferred());
-			expect(store.deferredPresent).toBe(true);
-
-			const backup = await store.backup();
-
-			store.isOnline = true;
 			await store.sync();
-			await new Promise((r) => setTimeout(r, 100));
-
-			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual([]);
-
-			await store.restoreBackup(backup);
-			await new Promise((r) => setTimeout(r, 100));
-			expect(await (store as any).$$localPersistence?.getDeferred()).toEqual([]);
-
-		});
-
-		it("should get a new version after restore is completed", async ()=>{
-			{
-				// clearing local database before starting
-				store = new Store({
-					remotePersistence: new CloudFlareApexoDB({
-						token,
-						endpoint: "https://apexo-database.vercel.app",
-						name: "staff",
-					}),
-					localPersistence: new IDB({
-						name: "staff",
-					}),
-				});
-				await (store as any).$$localPersistence.clear();
-				await (store as any).$$localPersistence.clearMetadata();
-			}
-			store = new Store({
-				remotePersistence: new CloudFlareApexoDB({
-					token,
-					endpoint: "https://apexo-database.vercel.app",
-					name: "staff",
-				}),
-				localPersistence: new IDB({
-					name: "staff",
-				}),
-			});
-
-			await store.loaded;
-
-			store.add({ id: "1", name: "alex" });
-			store.add({ id: "2", name: "mark" });
-			await new Promise((r) => setTimeout(r, 100));
-			
-			await store.sync();
-			const version1 = (await (store as any).$$localPersistence?.getVersion());
-			const version2 = (await (store as any).$$remotePersistence?.getVersion());
+			const version1 = await (store as any).$$localPersistence?.getVersion();
+			const version2 = await (store as any).$$remotePersistence?.getVersion();
 
 			expect(version1).toBe(version2);
 
 			const backup = await store.backup();
 			await store.restoreBackup(backup);
-			const version3 = (await (store as any).$$localPersistence?.getVersion());
-			const version4 = (await (store as any).$$remotePersistence?.getVersion());
+			const version3 = await (store as any).$$localPersistence?.getVersion();
+			const version4 = await (store as any).$$remotePersistence?.getVersion();
 			expect(version3).toBe(version4);
 
 			expect(version3).greaterThan(version1);
-
 		});
 	});
 });
