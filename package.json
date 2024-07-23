@@ -1,6 +1,6 @@
 {
 	"name": "sostore",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Synchronous reactive store and state",
 	"main": "dist/bundle.js",
 	"module": "dist/main.js",

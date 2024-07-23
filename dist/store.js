@@ -23,7 +23,9 @@ export class Store {
         this.$$model = Document;
         this.$$encode = (x) => x;
         this.$$decode = (x) => x;
-        this.new = this.$$model.new;
+        /**
+         * Synchronize local with remote database
+         */
         this.sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
         this.$$model = model || Document;
         if (onSyncStart) {
@@ -313,6 +315,108 @@ export class Store {
             return tries;
         });
     }
+    // ----------------------------- PUBLIC API -----------------------------
+    /**
+     * List of all items in the store (excluding deleted items)
+     */
+    get list() {
+        return this.$$observableObject.target.filter((x) => !x.$$deleted);
+    }
+    /**
+     * List of all items in the store (including deleted items) However, the list is not observable
+     */
+    get copy() {
+        return this.$$observableObject.copy;
+    }
+    /**
+     * Fetch document by ID
+     */
+    get(id) {
+        return this.$$observableObject.target.find((x) => x.id === id);
+    }
+    /**
+     * Add document (will model it as well)
+     */
+    add(item) {
+        if (this.$$observableObject.target.find((x) => x.id === item.id)) {
+            throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
+        }
+        let modeledItem = this.$$model.new(item);
+        this.$$observableObject.target.push(modeledItem);
+    }
+    /**
+     * Restore item after deletion
+     */
+    restoreItem(id) {
+        const item = this.$$observableObject.target.find((x) => x.id === id);
+        if (!item) {
+            throw new Error("Item not found.");
+        }
+        delete item.$$deleted;
+    }
+    /**
+     * delete Item (by ID)
+     */
+    delete(id) {
+        const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+        if (index === -1) {
+            throw new Error("Item not found.");
+        }
+        this.$$observableObject.target[index].$$deleted = true;
+    }
+    /**
+     * Update item properties (by ID)
+     */
+    update(id, item) {
+        const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+        if (index === -1) {
+            throw new Error("Item not found.");
+        }
+        if (this.$$observableObject.target[index].id !== item.id) {
+            throw new Error("ID mismatch.");
+        }
+        Object.keys(item).forEach((key) => {
+            this.$$observableObject.target[index][key] =
+                item[key];
+        });
+    }
+    /**
+     * whether the local database is in sync with the remote database
+     */
+    inSync() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this.$$localPersistence && this.$$remotePersistence) {
+                return ((yield this.$$localPersistence.getVersion()) ===
+                    (yield this.$$remotePersistence.getVersion()));
+            }
+            else
+                return false;
+        });
+    }
+    /**
+     * whether the local database has fully loaded
+     */
+    get loaded() {
+        return new Promise((resolve) => {
+            let i = setInterval(() => {
+                if (this.$$loaded) {
+                    clearInterval(i);
+                    resolve();
+                }
+            }, 100);
+        });
+    }
+    /**
+     * Whether the remote database is currently online
+     */
+    get isOnline() {
+        if (!this.$$remotePersistence)
+            return false;
+        return this.$$remotePersistence.isOnline;
+    }
+    /**
+     * Backup the local store, returns a string that can be used to restore the backup
+     */
     backup() {
         return __awaiter(this, void 0, void 0, function* () {
             if (!this.$$localPersistence) {
@@ -321,6 +425,10 @@ export class Store {
             return JSON.stringify(yield this.$$localPersistence.dump());
         });
     }
+    /**
+     * Restore the local store from a backup
+     * @param input the backup string
+     */
     restoreBackup(input) {
         return __awaiter(this, void 0, void 0, function* () {
             if (this.$$remotePersistence) {
@@ -343,100 +451,5 @@ export class Store {
             }
             return [];
         });
-    }
-    /**
-     * Public methods, to be used by the application
-     */
-    /**
-     * List of all items in the store (excluding deleted items)
-     */
-    get list() {
-        return this.$$observableObject.target.filter((x) => !x.$$deleted);
-    }
-    /**
-     * List of all items in the store (including deleted items) However, the list is not observable
-     */
-    get copy() {
-        return this.$$observableObject.copy;
-    }
-    getByID(id) {
-        return this.$$observableObject.target.find((x) => x.id === id);
-    }
-    add(item) {
-        if (this.$$observableObject.target.find((x) => x.id === item.id)) {
-            throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
-        }
-        this.$$observableObject.target.push(item);
-    }
-    restoreItem(id) {
-        const item = this.$$observableObject.target.find((x) => x.id === id);
-        if (!item) {
-            throw new Error("Item not found.");
-        }
-        delete item.$$deleted;
-    }
-    delete(item) {
-        const index = this.$$observableObject.target.findIndex((x) => x.id === item.id);
-        if (index === -1) {
-            throw new Error("Item not found.");
-        }
-        this.deleteByIndex(index);
-    }
-    deleteByIndex(index) {
-        if (!this.$$observableObject.target[index]) {
-            throw new Error("Item not found.");
-        }
-        this.$$observableObject.target[index].$$deleted = true;
-    }
-    deleteByID(id) {
-        const index = this.$$observableObject.target.findIndex((x) => x.id === id);
-        if (index === -1) {
-            throw new Error("Item not found.");
-        }
-        this.deleteByIndex(index);
-    }
-    updateByIndex(index, item) {
-        if (!this.$$observableObject.target[index]) {
-            throw new Error("Item not found.");
-        }
-        if (this.$$observableObject.target[index].id !== item.id) {
-            throw new Error("ID mismatch.");
-        }
-        this.$$observableObject.target[index] = item;
-    }
-    updateByID(id, item) {
-        const index = this.$$observableObject.target.findIndex((x) => x.id === id);
-        if (index === -1) {
-            throw new Error("Item not found.");
-        }
-        if (this.$$observableObject.target[index].id !== item.id) {
-            throw new Error("ID mismatch.");
-        }
-        this.updateByIndex(index, item);
-    }
-    isUpdated() {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (this.$$localPersistence && this.$$remotePersistence) {
-                return ((yield this.$$localPersistence.getVersion()) ===
-                    (yield this.$$remotePersistence.getVersion()));
-            }
-            else
-                return false;
-        });
-    }
-    get loaded() {
-        return new Promise((resolve) => {
-            let i = setInterval(() => {
-                if (this.$$loaded) {
-                    clearInterval(i);
-                    resolve();
-                }
-            }, 100);
-        });
-    }
-    get isOnline() {
-        if (!this.$$remotePersistence)
-            return false;
-        return this.$$remotePersistence.isOnline;
     }
 }

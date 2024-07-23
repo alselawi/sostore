@@ -1,5 +1,5 @@
 import { LocalPersistence } from "./persistence/local";
-import { Document } from "./model";
+import { Document, RecursivePartial } from "./model";
 import { RemotePersistence } from "./persistence/remote";
 export declare class Store<T extends Document> {
     deferredPresent: boolean;
@@ -78,16 +78,6 @@ export declare class Store<T extends Document> {
      */
     private $$syncTry;
     private $$sync;
-    backup(): Promise<string>;
-    restoreBackup(input: string): Promise<{
-        pushed?: number;
-        pulled?: number;
-        conflicts?: number;
-        exception?: string;
-    }[]>;
-    /**
-     * Public methods, to be used by the application
-     */
     /**
      * List of all items in the store (excluding deleted items)
      */
@@ -96,23 +86,58 @@ export declare class Store<T extends Document> {
      * List of all items in the store (including deleted items) However, the list is not observable
      */
     get copy(): T[];
-    getByID(id: string): T | undefined;
-    add(item: T): void;
-    new: <T_1 extends {
-        _stripDefaults?<T_2 extends any>(this: T_2): T_2;
-    }>(this: new () => T_1, data?: import("./model").RecursivePartial<T_1>) => T_1;
+    /**
+     * Fetch document by ID
+     */
+    get(id: string): T | undefined;
+    /**
+     * Add document (will model it as well)
+     */
+    add(item: RecursivePartial<T>): void;
+    /**
+     * Restore item after deletion
+     */
     restoreItem(id: string): void;
-    delete(item: T): void;
-    deleteByIndex(index: number): void;
-    deleteByID(id: string): void;
-    updateByIndex(index: number, item: T): void;
-    updateByID(id: string, item: T): void;
+    /**
+     * delete Item (by ID)
+     */
+    delete(id: string): void;
+    /**
+     * Update item properties (by ID)
+     */
+    update(id: string, item: RecursivePartial<T>): void;
+    /**
+     * Synchronize local with remote database
+     */
     sync: () => Promise<ReturnType<() => Promise<{
         exception?: string;
         pushed?: number;
         pulled?: number;
     }[]>>>;
-    isUpdated(): Promise<boolean>;
+    /**
+     * whether the local database is in sync with the remote database
+     */
+    inSync(): Promise<boolean>;
+    /**
+     * whether the local database has fully loaded
+     */
     get loaded(): Promise<void>;
+    /**
+     * Whether the remote database is currently online
+     */
     get isOnline(): boolean;
+    /**
+     * Backup the local store, returns a string that can be used to restore the backup
+     */
+    backup(): Promise<string>;
+    /**
+     * Restore the local store from a backup
+     * @param input the backup string
+     */
+    restoreBackup(input: string): Promise<{
+        pushed?: number;
+        pulled?: number;
+        conflicts?: number;
+        exception?: string;
+    }[]>;
 }
