@@ -56,7 +56,7 @@ describe("Store", () => {
 	it("should delete an item from the store", () => {
 		const item = { id: "1", name: "Test" };
 		store.add(item);
-		store.delete(item);
+		store.delete(item.id);
 		expect(!!store.list.find((x) => x.id === "1")).toBe(false);
 	});
 
@@ -64,7 +64,7 @@ describe("Store", () => {
 		const item = { id: "1", name: "x" };
 		store.add(item);
 		const updatedItem = { id: "1", name: "y" };
-		store.updateByIndex(0, updatedItem);
+		store.update(updatedItem.id, updatedItem);
 		expect(!!store.list.find((x) => x.name === "x")).toBe(false);
 		expect(!!store.list.find((x) => x.name === "y")).toBe(true);
 	});
@@ -80,7 +80,7 @@ describe("Store", () => {
 	it("should not delete an item from the store if it does not exist", () => {
 		const item = { id: "1", name: "Test" };
 		expect(() => {
-			store.delete(item);
+			store.delete(item.id);
 		}).toThrowError("Item not found.");
 	});
 
@@ -88,7 +88,7 @@ describe("Store", () => {
 		const item = { id: "1", name: "Test" };
 		store.add(item);
 		expect(() => {
-			store.updateByIndex(1, item);
+			store.update("x", item);
 		}).toThrowError("Item not found.");
 	});
 
@@ -96,7 +96,7 @@ describe("Store", () => {
 		const item = { id: "1", name: "Test" };
 		store.add(item);
 		expect(() => {
-			store.updateByIndex(0, { id: "2", name: "Test" });
+			store.update(item.id, { id: "2", name: "Test" });
 		}).toThrowError("ID mismatch.");
 	});
 
@@ -293,7 +293,7 @@ describe("Store", () => {
 
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
-		store.delete({ id: "1", name: "alex" });
+		store.delete("1");
 		await new Promise((r) => setTimeout(r, 150));
 
 		const rows = (await env.DB.prepare("SELECT * FROM staff").all()).results;
@@ -342,7 +342,7 @@ describe("Store", () => {
 
 		store.add({ id: "1", name: "alex" });
 		await new Promise((r) => setTimeout(r, 150));
-		store.updateByIndex(0, { id: "1", name: "john" });
+		store.update("1", { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
 		const rows = (await env.DB.prepare("SELECT * FROM staff").all()).results;
@@ -660,7 +660,7 @@ describe("Store", () => {
 		global.fetch = () => {
 			throw new Error("Mock connectivity error");
 		};
-		store.updateByIndex(0, { id: "1", name: "john" });
+		store.update("1", { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
@@ -1199,10 +1199,10 @@ describe("Store", () => {
 		global.fetch = () => {
 			throw new Error("Mock connectivity error");
 		};
-		store.updateByIndex(0, { id: "1", name: "john" });
+		store.update("1", { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
-		store.updateByIndex(0, { id: "1", name: "mark" });
+		store.update("1", { id: "1", name: "mark" });
 		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
@@ -1289,7 +1289,7 @@ describe("Store", () => {
 		global.fetch = () => {
 			throw new Error("Mock connectivity error");
 		};
-		store.updateByIndex(0, { id: "1", name: "john" });
+		store.update("1", { id: "1", name: "john" });
 		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.list.length).toBe(1);
@@ -1320,7 +1320,7 @@ describe("Store", () => {
 		global.fetch = mf.dispatchFetch as any;
 		(store as any).$$remotePersistence.isOnline = true;
 
-		store.updateByIndex(0, { id: "1", name: "mark" });
+		store.update("1", { id: "1", name: "mark" });
 		await new Promise((r) => setTimeout(r, 150));
 
 		expect(
@@ -1391,7 +1391,7 @@ describe("Store", () => {
 		global.fetch = () => {
 			throw new Error("Mock connectivity error");
 		};
-		store.updateByIndex(0, { id: "1", name: "mathew" });
+		store.update("1", { id: "1", name: "mathew" });
 		await new Promise((r) => setTimeout(r, 150));
 
 		expect(store.deferredPresent).toBe(true);
@@ -1599,8 +1599,8 @@ describe("Store", () => {
 
 			const backup = await store.backup();
 
-			store.updateByID("1", { name: "mathew", id: "1" });
-			store.updateByID("2", { name: "ron", id: "2" });
+			store.update("1", { name: "mathew", id: "1" });
+			store.update("2", { name: "ron", id: "2" });
 			await new Promise((r) => setTimeout(r, 150));
 
 			expect(store.copy).toEqual([
@@ -1655,8 +1655,8 @@ describe("Store", () => {
 			};
 			await new Promise((r) => setTimeout(r, 100));
 
-			store.updateByID("1", { name: "mathew", id: "1" });
-			store.updateByID("2", { name: "ron", id: "2" });
+			store.update("1", { name: "mathew", id: "1" });
+			store.update("2", { name: "ron", id: "2" });
 			await new Promise((r) => setTimeout(r, 100));
 			expect(store.copy).toEqual([
 				{ id: "1", name: "mathew" },
@@ -1724,8 +1724,8 @@ describe("Store", () => {
 			};
 			await new Promise((r) => setTimeout(r, 100));
 
-			store.updateByID("1", { name: "mathew", id: "1" });
-			store.updateByID("2", { name: "ron", id: "2" });
+			store.update("1", { name: "mathew", id: "1" });
+			store.update("2", { name: "ron", id: "2" });
 
 			await new Promise((r) => setTimeout(r, 100));
 			expect(store.copy).toEqual([
