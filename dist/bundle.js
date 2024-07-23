@@ -1,7 +1,7 @@
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
-    (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.apicalStore = {}));
+    (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.sostore = {}));
 })(this, (function (exports) { 'use strict';
 
     /******************************************************************************
@@ -48,9 +48,13 @@
         : typeof window !== "undefined"
             ? window
             : undefined);
-    function findGrandParent(observable) {
+    function findGrandParent(observable, visited = new Set()) {
+        if (visited.has(observable)) {
+            throw new Error("Circular reference detected in observable structure");
+        }
+        visited.add(observable);
         if (observable.parent)
-            return findGrandParent(observable.parent);
+            return findGrandParent(observable.parent, visited);
         else
             return observable;
     }
@@ -878,7 +882,6 @@
 
     class Store {
         constructor({ debounceRate, model, encode, decode, onSyncStart, onSyncEnd, localPersistence, remotePersistence, } = {}) {
-            this.isOnline = true;
             this.deferredPresent = false;
             this.onSyncStart = () => { };
             this.onSyncEnd = () => { };
@@ -890,10 +893,6 @@
             this.$$model = Document;
             this.$$encode = (x) => x;
             this.$$decode = (x) => x;
-            /**
-             * List of all items in the store (including deleted items) However, the list is not observable
-             */
-            this.copy = this.$$observableObject.copy;
             this.new = this.$$model.new;
             this.sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
             this.$$model = model || Document;
@@ -995,7 +994,7 @@
                     toWrite.push([item.id, serializedLine]);
                     toDeffer.push({
                         ts: Date.now(),
-                        data: serializedLine,
+                        id: item.id,
                     });
                 }
                 yield this.$$localPersistence.put(toWrite);
@@ -1019,8 +1018,10 @@
                  * 2. There's an error during sending updates to the remote server
                  * 3. We're offline
                  */
-                yield this.$$localPersistence.putDeferred(deferredArray.concat(...toDeffer));
-                this.deferredPresent = true;
+                if (this.$$remotePersistence) {
+                    yield this.$$localPersistence.putDeferred(deferredArray.concat(...toDeffer));
+                    this.deferredPresent = true;
+                }
                 this.onSyncEnd();
             });
         }
@@ -1093,6 +1094,7 @@
                     const localVersion = yield this.$$localPersistence.getVersion();
                     const remoteVersion = yield this.$$remotePersistence.getVersion();
                     let deferredArray = yield this.$$localPersistence.getDeferred();
+                    let conflicts = 0;
                     if (localVersion === remoteVersion && deferredArray.length === 0) {
                         return {
                             exception: "Nothing to sync",
@@ -1103,8 +1105,7 @@
                     // check for conflicts
                     deferredArray = deferredArray.filter((x) => {
                         var _a;
-                        let item = this.$$deserialize(x.data);
-                        const conflict = remoteUpdates.rows.findIndex((y) => y.id === item.id);
+                        const conflict = remoteUpdates.rows.findIndex((y) => y.id === x.id);
                         // take row-specific version if available, otherwise rely on latest version
                         const comparison = Number(((_a = remoteUpdates.rows[conflict]) === null || _a === void 0 ? void 0 : _a.ts) || remoteVersion);
                         if (conflict === -1) {
@@ -1113,10 +1114,12 @@
                         else if (x.ts > comparison) {
                             // there's a conflict, but the local change is newer
                             remoteUpdates.rows.splice(conflict, 1);
+                            conflicts++;
                             return true;
                         }
                         else {
                             // there's a conflict, and the remote change is newer
+                            conflicts++;
                             return false;
                         }
                     });
@@ -1125,9 +1128,8 @@
                     yield this.$$localPersistence.put(remoteUpdates.rows.map((row) => [row.id, row.data]));
                     // then local
                     const updatedRows = new Map();
-                    for (const local of deferredArray) {
-                        let item = this.$$deserialize(local.data);
-                        updatedRows.set(item.id, local.data);
+                    for (const d of deferredArray) {
+                        updatedRows.set(d.id, yield this.$$localPersistence.getOne(d.id));
                         // latest deferred write wins since it would overwrite the previous one
                     }
                     yield this.$$remotePersistence.put([...updatedRows.keys()].map((x) => [x, updatedRows.get(x)]));
@@ -1150,7 +1152,7 @@
                     yield this.$$loadFromLocal();
                     let pushed = deferredArray.length;
                     let pulled = remoteUpdates.rows.length;
-                    return { pushed, pulled };
+                    return { pushed, pulled, conflicts };
                 }
                 catch (e) {
                     console.error(e);
@@ -1181,6 +1183,37 @@
                 return tries;
             });
         }
+        backup() {
+            return __awaiter(this, void 0, void 0, function* () {
+                if (!this.$$localPersistence) {
+                    throw new Error("Local persistence not available");
+                }
+                return JSON.stringify(yield this.$$localPersistence.dump());
+            });
+        }
+        restoreBackup(input) {
+            return __awaiter(this, void 0, void 0, function* () {
+                if (this.$$remotePersistence) {
+                    yield this.$$remotePersistence.checkOnline();
+                    if (!this.$$remotePersistence.isOnline) {
+                        throw new Error("Can not restore backup when the client is offline!");
+                    }
+                }
+                const dump = JSON.parse(input);
+                if (!this.$$localPersistence) {
+                    throw new Error("Local persistence not available");
+                }
+                yield this.$$localPersistence.put(dump.data);
+                yield this.$$localPersistence.putDeferred(dump.metadata.deferred);
+                yield this.$$localPersistence.putVersion(dump.metadata.version);
+                yield this.$$loadFromLocal();
+                if (this.$$remotePersistence) {
+                    yield this.$$remotePersistence.put(dump.data);
+                    return yield this.sync(); // to get latest version number
+                }
+                return [];
+            });
+        }
         /**
          * Public methods, to be used by the application
          */
@@ -1189,6 +1222,12 @@
          */
         get list() {
             return this.$$observableObject.target.filter((x) => !x.$$deleted);
+        }
+        /**
+         * List of all items in the store (including deleted items) However, the list is not observable
+         */
+        get copy() {
+            return this.$$observableObject.copy;
         }
         getByID(id) {
             return this.$$observableObject.target.find((x) => x.id === id);
@@ -1199,7 +1238,7 @@
             }
             this.$$observableObject.target.push(item);
         }
-        restore(id) {
+        restoreItem(id) {
             const item = this.$$observableObject.target.find((x) => x.id === id);
             if (!item) {
                 throw new Error("Item not found.");
@@ -1235,6 +1274,16 @@
             }
             this.$$observableObject.target[index] = item;
         }
+        updateByID(id, item) {
+            const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+            if (index === -1) {
+                throw new Error("Item not found.");
+            }
+            if (this.$$observableObject.target[index].id !== item.id) {
+                throw new Error("ID mismatch.");
+            }
+            this.updateByIndex(index, item);
+        }
         isUpdated() {
             return __awaiter(this, void 0, void 0, function* () {
                 if (this.$$localPersistence && this.$$remotePersistence) {
@@ -1254,6 +1303,11 @@
                     }
                 }, 100);
             });
+        }
+        get isOnline() {
+            if (!this.$$remotePersistence)
+                return false;
+            return this.$$remotePersistence.isOnline;
         }
     }
 
@@ -1326,6 +1380,9 @@
                 return rows;
             }));
         }
+        getOne(id) {
+            return this.store("readonly", (store) => this.pr(store.get(id)));
+        }
         getVersion() {
             return __awaiter(this, void 0, void 0, function* () {
                 return Number((yield this.getMetadata("version")) || 0);
@@ -1376,13 +1433,59 @@
                 return this.pr(store.transaction);
             });
         }
+        dump() {
+            return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
+                let data = [];
+                if (store.getAll && store.getAllKeys) {
+                    const keys = yield this.pr(store.getAllKeys());
+                    const values = yield this.pr(store.getAll());
+                    data = keys.map((key, index) => [key, values[index]]);
+                }
+                else {
+                    yield this.eachCursor(store, (cursor) => {
+                        data.push([cursor.key, cursor.value]);
+                    });
+                }
+                return {
+                    data,
+                    metadata: {
+                        version: yield this.getVersion(),
+                        deferred: yield this.getDeferred(),
+                    },
+                };
+            }));
+        }
     }
 
     class CloudFlareApexoDB {
         constructor({ endpoint, token, name, }) {
+            this.isOnline = true;
             this.baseUrl = endpoint;
             this.token = token;
             this.table = name;
+            this.checkOnline();
+        }
+        checkOnline() {
+            return __awaiter(this, void 0, void 0, function* () {
+                try {
+                    yield fetch(this.baseUrl, {
+                        method: "HEAD",
+                    });
+                    this.isOnline = true;
+                }
+                catch (e) {
+                    this.isOnline = false;
+                    this.retryConnection();
+                }
+            });
+        }
+        retryConnection() {
+            let i = setInterval(() => {
+                if (this.isOnline)
+                    clearInterval(i);
+                else
+                    this.checkOnline();
+            }, 5000);
         }
         getSince() {
             return __awaiter(this, arguments, void 0, function* (version = 0) {
@@ -1392,13 +1495,29 @@
                 let result = [];
                 while (nextPage) {
                     const url = `${this.baseUrl}/${this.table}/${version}/${page}`;
-                    const response = yield fetch(url, {
-                        method: "GET",
-                        headers: {
-                            Authorization: `Bearer ${this.token}`,
-                        },
-                    });
-                    const res = yield response.json();
+                    let res;
+                    try {
+                        const response = yield fetch(url, {
+                            method: "GET",
+                            headers: {
+                                Authorization: `Bearer ${this.token}`,
+                            },
+                        });
+                        res = yield response.json();
+                    }
+                    catch (e) {
+                        this.checkOnline();
+                        res = {
+                            success: false,
+                            output: ``,
+                        };
+                        break;
+                    }
+                    if (res.success === false) {
+                        result = [];
+                        version = 0;
+                        break;
+                    }
                     const output = JSON.parse(res.output);
                     nextPage = output.rows.length > 0 && version !== 0;
                     fetchedVersion = output.version;
@@ -1411,13 +1530,23 @@
         getVersion() {
             return __awaiter(this, void 0, void 0, function* () {
                 const url = `${this.baseUrl}/${this.table}/0/Infinity`;
-                const response = yield fetch(url, {
-                    method: "GET",
-                    headers: {
-                        Authorization: `Bearer ${this.token}`,
-                    },
-                });
-                const res = yield response.json();
+                let res;
+                try {
+                    const response = yield fetch(url, {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${this.token}`,
+                        },
+                    });
+                    res = yield response.json();
+                }
+                catch (e) {
+                    this.checkOnline();
+                    res = {
+                        success: false,
+                        output: ``,
+                    };
+                }
                 if (res.success)
                     return Number(JSON.parse(res.output).version);
                 else
@@ -1431,13 +1560,19 @@
                     return record;
                 }, {});
                 const url = `${this.baseUrl}/${this.table}`;
-                yield fetch(url, {
-                    method: "PUT",
-                    headers: {
-                        Authorization: `Bearer ${this.token}`,
-                    },
-                    body: JSON.stringify(reqBody),
-                });
+                try {
+                    yield fetch(url, {
+                        method: "PUT",
+                        headers: {
+                            Authorization: `Bearer ${this.token}`,
+                        },
+                        body: JSON.stringify(reqBody),
+                    });
+                }
+                catch (e) {
+                    this.checkOnline();
+                    throw e;
+                }
                 return;
             });
         }

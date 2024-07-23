@@ -1,7 +1,7 @@
 import { Change, Observable } from "./observable";
 import { deferredArray, Dump, LocalPersistence } from "./persistence/local";
 import { debounce } from "./debounce";
-import { Document } from "./model";
+import { Document, RecursivePartial } from "./model";
 import { RemotePersistence } from "./persistence/remote";
 
 export class Store<T extends Document> {
@@ -360,6 +360,121 @@ export class Store<T extends Document> {
 		return tries;
 	}
 
+	// ----------------------------- PUBLIC API -----------------------------
+
+	/**
+	 * List of all items in the store (excluding deleted items)
+	 */
+	get list() {
+		return this.$$observableObject.target.filter((x) => !x.$$deleted);
+	}
+
+	/**
+	 * List of all items in the store (including deleted items) However, the list is not observable
+	 */
+	get copy() {
+		return this.$$observableObject.copy;
+	}
+
+	/**
+	 * Fetch document by ID
+	 */
+	get(id: string) {
+		return this.$$observableObject.target.find((x) => x.id === id);
+	}
+
+	/**
+	 * Add document (will model it as well)
+	 */
+	add(item: RecursivePartial<T>) {
+		if (this.$$observableObject.target.find((x) => x.id === item.id)) {
+			throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
+		}
+		let modeledItem = this.$$model.new(item) as T;
+		this.$$observableObject.target.push(modeledItem);
+	}
+
+	/**
+	 * Restore item after deletion
+	 */
+	restoreItem(id: string) {
+		const item = this.$$observableObject.target.find((x) => x.id === id);
+		if (!item) {
+			throw new Error("Item not found.");
+		}
+		delete item.$$deleted;
+	}
+
+	/**
+	 * delete Item (by ID)
+	 */
+	delete(id: string) {
+		const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+		if (index === -1) {
+			throw new Error("Item not found.");
+		}
+		this.$$observableObject.target[index].$$deleted = true;
+	}
+
+	/**
+	 * Update item properties (by ID)
+	 */
+	update(id: string, item: RecursivePartial<T>) {
+		const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+		if (index === -1) {
+			throw new Error("Item not found.");
+		}
+		if (this.$$observableObject.target[index].id !== item.id) {
+			throw new Error("ID mismatch.");
+		}
+		Object.keys(item).forEach((key) => {
+			(this.$$observableObject.target as any)[index][key] =
+				item[key as keyof T];
+		});
+	}
+
+	/**
+	 * Synchronize local with remote database
+	 */
+	sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
+
+	/**
+	 * whether the local database is in sync with the remote database
+	 */
+	async inSync() {
+		if (this.$$localPersistence && this.$$remotePersistence) {
+			return (
+				(await this.$$localPersistence.getVersion()) ===
+				(await this.$$remotePersistence.getVersion())
+			);
+		} else return false;
+	}
+
+	/**
+	 * whether the local database has fully loaded
+	 */
+	get loaded() {
+		return new Promise<void>((resolve) => {
+			let i = setInterval(() => {
+				if (this.$$loaded) {
+					clearInterval(i);
+					resolve();
+				}
+			}, 100);
+		});
+	}
+
+	/**
+	 * Whether the remote database is currently online
+	 */
+	get isOnline() {
+		if (!this.$$remotePersistence) return false;
+		return this.$$remotePersistence.isOnline;
+	}
+
+	/**
+	 * Backup the local store, returns a string that can be used to restore the backup
+	 */
 	async backup() {
 		if (!this.$$localPersistence) {
 			throw new Error("Local persistence not available");
@@ -367,9 +482,11 @@ export class Store<T extends Document> {
 		return JSON.stringify(await this.$$localPersistence.dump());
 	}
 
-	async restoreBackup(
-		input: string
-	): Promise<
+	/**
+	 * Restore the local store from a backup
+	 * @param input the backup string
+	 */
+	async restoreBackup(input: string): Promise<
 		{
 			pushed?: number;
 			pulled?: number;
@@ -396,117 +513,5 @@ export class Store<T extends Document> {
 			return await this.sync(); // to get latest version number
 		}
 		return [];
-	}
-
-	/**
-	 * Public methods, to be used by the application
-	 */
-
-	/**
-	 * List of all items in the store (excluding deleted items)
-	 */
-	get list() {
-		return this.$$observableObject.target.filter((x) => !x.$$deleted);
-	}
-
-	/**
-	 * List of all items in the store (including deleted items) However, the list is not observable
-	 */
-	get copy() {
-		return this.$$observableObject.copy;
-	}
-
-	getByID(id: string) {
-		return this.$$observableObject.target.find((x) => x.id === id);
-	}
-
-	add(item: T) {
-		if (this.$$observableObject.target.find((x) => x.id === item.id)) {
-			throw new Error("Duplicate ID detected: " + JSON.stringify(item.id));
-		}
-		this.$$observableObject.target.push(item);
-	}
-
-	new = this.$$model.new;
-
-	restoreItem(id: string) {
-		const item = this.$$observableObject.target.find((x) => x.id === id);
-		if (!item) {
-			throw new Error("Item not found.");
-		}
-		delete item.$$deleted;
-	}
-
-	delete(item: T) {
-		const index = this.$$observableObject.target.findIndex(
-			(x) => x.id === item.id
-		);
-		if (index === -1) {
-			throw new Error("Item not found.");
-		}
-		this.deleteByIndex(index);
-	}
-
-	deleteByIndex(index: number) {
-		if (!this.$$observableObject.target[index]) {
-			throw new Error("Item not found.");
-		}
-		this.$$observableObject.target[index].$$deleted = true;
-	}
-
-	deleteByID(id: string) {
-		const index = this.$$observableObject.target.findIndex((x) => x.id === id);
-		if (index === -1) {
-			throw new Error("Item not found.");
-		}
-		this.deleteByIndex(index);
-	}
-
-	updateByIndex(index: number, item: T) {
-		if (!this.$$observableObject.target[index]) {
-			throw new Error("Item not found.");
-		}
-		if (this.$$observableObject.target[index].id !== item.id) {
-			throw new Error("ID mismatch.");
-		}
-		this.$$observableObject.target[index] = item;
-	}
-
-	updateByID(id: string, item: T) {
-		const index = this.$$observableObject.target.findIndex((x) => x.id === id);
-		if (index === -1) {
-			throw new Error("Item not found.");
-		}
-		if (this.$$observableObject.target[index].id !== item.id) {
-			throw new Error("ID mismatch.");
-		}
-		this.updateByIndex(index, item);
-	}
-
-	sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
-
-	async isUpdated() {
-		if (this.$$localPersistence && this.$$remotePersistence) {
-			return (
-				(await this.$$localPersistence.getVersion()) ===
-				(await this.$$remotePersistence.getVersion())
-			);
-		} else return false;
-	}
-
-	get loaded() {
-		return new Promise<void>((resolve) => {
-			let i = setInterval(() => {
-				if (this.$$loaded) {
-					clearInterval(i);
-					resolve();
-				}
-			}, 100);
-		});
-	}
-
-	get isOnline() {
-		if (!this.$$remotePersistence) return false;
-		return this.$$remotePersistence.isOnline;
 	}
 }

@@ -12,7 +12,6 @@ import { debounce } from "./debounce";
 import { Document } from "./model";
 export class Store {
     constructor({ debounceRate, model, encode, decode, onSyncStart, onSyncEnd, localPersistence, remotePersistence, } = {}) {
-        this.isOnline = true;
         this.deferredPresent = false;
         this.onSyncStart = () => { };
         this.onSyncEnd = () => { };
@@ -24,10 +23,6 @@ export class Store {
         this.$$model = Document;
         this.$$encode = (x) => x;
         this.$$decode = (x) => x;
-        /**
-         * List of all items in the store (including deleted items) However, the list is not observable
-         */
-        this.copy = this.$$observableObject.copy;
         this.new = this.$$model.new;
         this.sync = debounce(this.$$sync.bind(this), this.$$debounceRate);
         this.$$model = model || Document;
@@ -129,7 +124,7 @@ export class Store {
                 toWrite.push([item.id, serializedLine]);
                 toDeffer.push({
                     ts: Date.now(),
-                    data: serializedLine,
+                    id: item.id,
                 });
             }
             yield this.$$localPersistence.put(toWrite);
@@ -153,8 +148,10 @@ export class Store {
              * 2. There's an error during sending updates to the remote server
              * 3. We're offline
              */
-            yield this.$$localPersistence.putDeferred(deferredArray.concat(...toDeffer));
-            this.deferredPresent = true;
+            if (this.$$remotePersistence) {
+                yield this.$$localPersistence.putDeferred(deferredArray.concat(...toDeffer));
+                this.deferredPresent = true;
+            }
             this.onSyncEnd();
         });
     }
@@ -227,6 +224,7 @@ export class Store {
                 const localVersion = yield this.$$localPersistence.getVersion();
                 const remoteVersion = yield this.$$remotePersistence.getVersion();
                 let deferredArray = yield this.$$localPersistence.getDeferred();
+                let conflicts = 0;
                 if (localVersion === remoteVersion && deferredArray.length === 0) {
                     return {
                         exception: "Nothing to sync",
@@ -237,8 +235,7 @@ export class Store {
                 // check for conflicts
                 deferredArray = deferredArray.filter((x) => {
                     var _a;
-                    let item = this.$$deserialize(x.data);
-                    const conflict = remoteUpdates.rows.findIndex((y) => y.id === item.id);
+                    const conflict = remoteUpdates.rows.findIndex((y) => y.id === x.id);
                     // take row-specific version if available, otherwise rely on latest version
                     const comparison = Number(((_a = remoteUpdates.rows[conflict]) === null || _a === void 0 ? void 0 : _a.ts) || remoteVersion);
                     if (conflict === -1) {
@@ -247,10 +244,12 @@ export class Store {
                     else if (x.ts > comparison) {
                         // there's a conflict, but the local change is newer
                         remoteUpdates.rows.splice(conflict, 1);
+                        conflicts++;
                         return true;
                     }
                     else {
                         // there's a conflict, and the remote change is newer
+                        conflicts++;
                         return false;
                     }
                 });
@@ -259,9 +258,8 @@ export class Store {
                 yield this.$$localPersistence.put(remoteUpdates.rows.map((row) => [row.id, row.data]));
                 // then local
                 const updatedRows = new Map();
-                for (const local of deferredArray) {
-                    let item = this.$$deserialize(local.data);
-                    updatedRows.set(item.id, local.data);
+                for (const d of deferredArray) {
+                    updatedRows.set(d.id, yield this.$$localPersistence.getOne(d.id));
                     // latest deferred write wins since it would overwrite the previous one
                 }
                 yield this.$$remotePersistence.put([...updatedRows.keys()].map((x) => [x, updatedRows.get(x)]));
@@ -284,7 +282,7 @@ export class Store {
                 yield this.$$loadFromLocal();
                 let pushed = deferredArray.length;
                 let pulled = remoteUpdates.rows.length;
-                return { pushed, pulled };
+                return { pushed, pulled, conflicts };
             }
             catch (e) {
                 console.error(e);
@@ -315,6 +313,37 @@ export class Store {
             return tries;
         });
     }
+    backup() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.$$localPersistence) {
+                throw new Error("Local persistence not available");
+            }
+            return JSON.stringify(yield this.$$localPersistence.dump());
+        });
+    }
+    restoreBackup(input) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this.$$remotePersistence) {
+                yield this.$$remotePersistence.checkOnline();
+                if (!this.$$remotePersistence.isOnline) {
+                    throw new Error("Can not restore backup when the client is offline!");
+                }
+            }
+            const dump = JSON.parse(input);
+            if (!this.$$localPersistence) {
+                throw new Error("Local persistence not available");
+            }
+            yield this.$$localPersistence.put(dump.data);
+            yield this.$$localPersistence.putDeferred(dump.metadata.deferred);
+            yield this.$$localPersistence.putVersion(dump.metadata.version);
+            yield this.$$loadFromLocal();
+            if (this.$$remotePersistence) {
+                yield this.$$remotePersistence.put(dump.data);
+                return yield this.sync(); // to get latest version number
+            }
+            return [];
+        });
+    }
     /**
      * Public methods, to be used by the application
      */
@@ -323,6 +352,12 @@ export class Store {
      */
     get list() {
         return this.$$observableObject.target.filter((x) => !x.$$deleted);
+    }
+    /**
+     * List of all items in the store (including deleted items) However, the list is not observable
+     */
+    get copy() {
+        return this.$$observableObject.copy;
     }
     getByID(id) {
         return this.$$observableObject.target.find((x) => x.id === id);
@@ -333,7 +368,7 @@ export class Store {
         }
         this.$$observableObject.target.push(item);
     }
-    restore(id) {
+    restoreItem(id) {
         const item = this.$$observableObject.target.find((x) => x.id === id);
         if (!item) {
             throw new Error("Item not found.");
@@ -369,6 +404,16 @@ export class Store {
         }
         this.$$observableObject.target[index] = item;
     }
+    updateByID(id, item) {
+        const index = this.$$observableObject.target.findIndex((x) => x.id === id);
+        if (index === -1) {
+            throw new Error("Item not found.");
+        }
+        if (this.$$observableObject.target[index].id !== item.id) {
+            throw new Error("ID mismatch.");
+        }
+        this.updateByIndex(index, item);
+    }
     isUpdated() {
         return __awaiter(this, void 0, void 0, function* () {
             if (this.$$localPersistence && this.$$remotePersistence) {
@@ -388,5 +433,10 @@ export class Store {
                 }
             }, 100);
         });
+    }
+    get isOnline() {
+        if (!this.$$remotePersistence)
+            return false;
+        return this.$$remotePersistence.isOnline;
     }
 }

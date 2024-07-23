@@ -1,13 +1,22 @@
 import { Persistence } from "./type";
 export type deferredArray = {
     ts: number;
-    data: string;
+    id: string;
 }[];
+export interface Dump {
+    data: [string, string][];
+    metadata: {
+        version: number;
+        deferred: deferredArray;
+    };
+}
 export interface LocalPersistence extends Persistence {
     getAll(): Promise<string[]>;
+    getOne(id: string): Promise<string>;
     putVersion(number: number): Promise<void>;
     getDeferred(): Promise<deferredArray>;
     putDeferred(arr: deferredArray): Promise<void>;
+    dump(): Promise<Dump>;
 }
 export declare class IDB implements LocalPersistence {
     private store;
@@ -32,6 +41,7 @@ export declare class IDB implements LocalPersistence {
      * Get all documents in the store.
      */
     getAll(): Promise<string[]>;
+    getOne(id: string): Promise<string>;
     getVersion(): Promise<number>;
     putVersion(version: number): Promise<void>;
     getDeferred(): Promise<deferredArray>;
@@ -49,4 +59,11 @@ export declare class IDB implements LocalPersistence {
      */
     clear(): Promise<void>;
     clearMetadata(): Promise<void>;
+    dump(): Promise<{
+        data: [string, string][];
+        metadata: {
+            version: number;
+            deferred: deferredArray;
+        };
+    }>;
 }

@@ -2,7 +2,6 @@ import { LocalPersistence } from "./persistence/local";
 import { Document } from "./model";
 import { RemotePersistence } from "./persistence/remote";
 export declare class Store<T extends Document> {
-    isOnline: boolean;
     deferredPresent: boolean;
     onSyncStart: () => void;
     onSyncEnd: () => void;
@@ -79,6 +78,13 @@ export declare class Store<T extends Document> {
      */
     private $$syncTry;
     private $$sync;
+    backup(): Promise<string>;
+    restoreBackup(input: string): Promise<{
+        pushed?: number;
+        pulled?: number;
+        conflicts?: number;
+        exception?: string;
+    }[]>;
     /**
      * Public methods, to be used by the application
      */
@@ -89,17 +95,18 @@ export declare class Store<T extends Document> {
     /**
      * List of all items in the store (including deleted items) However, the list is not observable
      */
-    copy: T[];
+    get copy(): T[];
     getByID(id: string): T | undefined;
     add(item: T): void;
     new: <T_1 extends {
         _stripDefaults?<T_2 extends any>(this: T_2): T_2;
     }>(this: new () => T_1, data?: import("./model").RecursivePartial<T_1>) => T_1;
-    restore(id: string): void;
+    restoreItem(id: string): void;
     delete(item: T): void;
     deleteByIndex(index: number): void;
     deleteByID(id: string): void;
     updateByIndex(index: number, item: T): void;
+    updateByID(id: string, item: T): void;
     sync: () => Promise<ReturnType<() => Promise<{
         exception?: string;
         pushed?: number;
@@ -107,4 +114,5 @@ export declare class Store<T extends Document> {
     }[]>>>;
     isUpdated(): Promise<boolean>;
     get loaded(): Promise<void>;
+    get isOnline(): boolean;
 }

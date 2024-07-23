@@ -5,7 +5,7 @@ export default {
     output: {
         file: 'dist/bundle.js', // output file
         format: 'umd', // output format (umd, cjs, esm, iife)
-        name: 'apicalStore', // global variable name for umd/iife bundles
+        name: 'sostore', // global variable name for umd/iife bundles
     },
     plugins: [
         typescript() // example plugin (typescript compiler)

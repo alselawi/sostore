@@ -1,11 +1,15 @@
 {
-	"name": "apical-store",
-	"version": "0.0.82",
-	"description": "reactive-syncable-datastore",
+	"name": "sostore",
+	"version": "0.1.2",
+	"description": "Synchronous reactive store and state",
 	"main": "dist/bundle.js",
 	"module": "dist/main.js",
 	"type": "module",
 	"types": "dist/main.d.ts",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/alselawi/sostore.git"
+	},
 	"scripts": {
 		"test": "vitest",
 		"build": "rollup -c && tsc",

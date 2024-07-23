@@ -9,9 +9,33 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 export class CloudFlareApexoDB {
     constructor({ endpoint, token, name, }) {
+        this.isOnline = true;
         this.baseUrl = endpoint;
         this.token = token;
         this.table = name;
+        this.checkOnline();
+    }
+    checkOnline() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                yield fetch(this.baseUrl, {
+                    method: "HEAD",
+                });
+                this.isOnline = true;
+            }
+            catch (e) {
+                this.isOnline = false;
+                this.retryConnection();
+            }
+        });
+    }
+    retryConnection() {
+        let i = setInterval(() => {
+            if (this.isOnline)
+                clearInterval(i);
+            else
+                this.checkOnline();
+        }, 5000);
     }
     getSince() {
         return __awaiter(this, arguments, void 0, function* (version = 0) {
@@ -21,13 +45,29 @@ export class CloudFlareApexoDB {
             let result = [];
             while (nextPage) {
                 const url = `${this.baseUrl}/${this.table}/${version}/${page}`;
-                const response = yield fetch(url, {
-                    method: "GET",
-                    headers: {
-                        Authorization: `Bearer ${this.token}`,
-                    },
-                });
-                const res = yield response.json();
+                let res;
+                try {
+                    const response = yield fetch(url, {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${this.token}`,
+                        },
+                    });
+                    res = yield response.json();
+                }
+                catch (e) {
+                    this.checkOnline();
+                    res = {
+                        success: false,
+                        output: ``,
+                    };
+                    break;
+                }
+                if (res.success === false) {
+                    result = [];
+                    version = 0;
+                    break;
+                }
                 const output = JSON.parse(res.output);
                 nextPage = output.rows.length > 0 && version !== 0;
                 fetchedVersion = output.version;
@@ -40,13 +80,23 @@ export class CloudFlareApexoDB {
     getVersion() {
         return __awaiter(this, void 0, void 0, function* () {
             const url = `${this.baseUrl}/${this.table}/0/Infinity`;
-            const response = yield fetch(url, {
-                method: "GET",
-                headers: {
-                    Authorization: `Bearer ${this.token}`,
-                },
-            });
-            const res = yield response.json();
+            let res;
+            try {
+                const response = yield fetch(url, {
+                    method: "GET",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                });
+                res = yield response.json();
+            }
+            catch (e) {
+                this.checkOnline();
+                res = {
+                    success: false,
+                    output: ``,
+                };
+            }
             if (res.success)
                 return Number(JSON.parse(res.output).version);
             else
@@ -60,13 +110,19 @@ export class CloudFlareApexoDB {
                 return record;
             }, {});
             const url = `${this.baseUrl}/${this.table}`;
-            const response = yield fetch(url, {
-                method: "PUT",
-                headers: {
-                    Authorization: `Bearer ${this.token}`,
-                },
-                body: JSON.stringify(reqBody),
-            });
+            try {
+                yield fetch(url, {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                    body: JSON.stringify(reqBody),
+                });
+            }
+            catch (e) {
+                this.checkOnline();
+                throw e;
+            }
             return;
         });
     }

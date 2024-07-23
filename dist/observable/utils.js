@@ -10,9 +10,13 @@
     : typeof window !== "undefined"
         ? window
         : this);
-export function findGrandParent(observable) {
+export function findGrandParent(observable, visited = new Set()) {
+    if (visited.has(observable)) {
+        throw new Error("Circular reference detected in observable structure");
+    }
+    visited.add(observable);
     if (observable.parent)
-        return findGrandParent(observable.parent);
+        return findGrandParent(observable.parent, visited);
     else
         return observable;
 }

@@ -76,6 +76,9 @@ export class IDB {
             return rows;
         }));
     }
+    getOne(id) {
+        return this.store("readonly", (store) => this.pr(store.get(id)));
+    }
     getVersion() {
         return __awaiter(this, void 0, void 0, function* () {
             return Number((yield this.getMetadata("version")) || 0);
@@ -125,5 +128,27 @@ export class IDB {
             store.clear();
             return this.pr(store.transaction);
         });
+    }
+    dump() {
+        return this.store("readonly", (store) => __awaiter(this, void 0, void 0, function* () {
+            let data = [];
+            if (store.getAll && store.getAllKeys) {
+                const keys = yield this.pr(store.getAllKeys());
+                const values = yield this.pr(store.getAll());
+                data = keys.map((key, index) => [key, values[index]]);
+            }
+            else {
+                yield this.eachCursor(store, (cursor) => {
+                    data.push([cursor.key, cursor.value]);
+                });
+            }
+            return {
+                data,
+                metadata: {
+                    version: yield this.getVersion(),
+                    deferred: yield this.getDeferred(),
+                },
+            };
+        }));
     }
 }
